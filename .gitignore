@@ -1,0 +1,30 @@
+# Node
+node_modules/
+.npm
+dist/
+build/
+.env
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+.env
+
+# Go
+bin/
+pkg/
+*.exe
+
+# IDE/OS
+.vscode/
+.idea/
+.DS_Store
+*.swp
+*.log
+
+# Docker/Data
+*.sqlite
+*.db
