@@ -1,108 +1,134 @@
-import sqlite3 from 'sqlite3';
-import { randomUUID } from 'crypto';
-import fs from 'fs';
-import path from 'path';
+import Database from 'better-sqlite3';
+import { v4 as uuidv4 } from 'uuid';
+import * as path from 'path';
 
-const DB_PATH = process.env.DATABASE_URL?.replace('sqlite://', '') || path.join(__dirname, '../../data/nexus.db');
+// Define DB Type interfaces
+export interface Task {
+    id: string;
+    project_id: string;
+    title: string;
+    objective: string;
+    lane: string;
+    status: 'created' | 'dispatched' | 'validating' | 'completed' | 'failed';
+    max_retries: number;
+    retry_count: number;
+    payload_schema: any;
+    ext_meta: any;
+    created_at: string;
+}
 
-export class DAL {
-    private db: sqlite3.Database;
+export interface Run {
+    run_id: string;
+    task_id: string;
+    worker_id: string;
+    idempotency_key: string;
+    status: 'running' | 'success' | 'failed';
+    error_stack?: string | null;
+    started_at: string;
+    ended_at?: string | null;
+}
 
-    constructor() {
-        const dbDir = path.dirname(DB_PATH);
-        if (!fs.existsSync(dbDir)) {
-            fs.mkdirSync(dbDir, { recursive: true });
-        }
+class DAL {
+    private db: Database.Database;
+
+    constructor(dbPath: string = path.resolve(__dirname, '../../data/nexus.db')) {
+        this.db = new Database(dbPath);
         
-        this.db = new sqlite3.Database(DB_PATH);
-        this.db.serialize(() => {
-            this.db.run('PRAGMA journal_mode=WAL;');
-            this.db.run('PRAGMA foreign_keys=ON;');
-        });
+        // Critical: Enable WAL mode and Foreign Keys as per SSD specification
+        this.db.pragma('journal_mode = WAL');
+        this.db.pragma('foreign_keys = ON');
     }
 
-    public initSchema(): Promise<void> {
-        return new Promise((resolve, reject) => {
-            const schemaPath = path.join(__dirname, 'migrations/V1__init_schema.sql');
-            const schema = fs.readFileSync(schemaPath, 'utf8');
-            this.db.exec(schema, (err) => {
-                if (err) reject(err);
-                else resolve();
-            });
-        });
+    // Initialize Schema
+    public initSchema(schemaSql: string): void {
+        this.db.exec(schemaSql);
     }
 
-    public createProject(name: string): Promise<string> {
-        const id = randomUUID();
-        return new Promise((resolve, reject) => {
-            this.db.run(
-                'INSERT INTO nexus_projects (id, name, status) VALUES (?, ?, ?)',
-                [id, name, 'active'],
-                (err) => {
-                    if (err) reject(err);
-                    else resolve(id);
-                }
-            );
-        });
+    // Task Operations
+    public createTask(task: Omit<Task, 'id' | 'created_at' | 'status' | 'retry_count'> & { id?: string }): string {
+        const id = task.id || uuidv4();
+        const stmt = this.db.prepare(`
+            INSERT INTO nexus_tasks (id, project_id, title, objective, lane, payload_schema, ext_meta, max_retries)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        `);
+        
+        stmt.run(
+            id,
+            task.project_id,
+            task.title,
+            task.objective,
+            task.lane,
+            JSON.stringify(task.payload_schema || {}),
+            JSON.stringify(task.ext_meta || {}),
+            task.max_retries || 3
+        );
+        return id;
     }
 
-    public createTask(projectId: string, title: string, objective: string, lane: string): Promise<string> {
-        const id = randomUUID();
-        return new Promise((resolve, reject) => {
-            this.db.run(
-                'INSERT INTO nexus_tasks (id, project_id, title, objective, lane, status) VALUES (?, ?, ?, ?, ?, ?)',
-                [id, projectId, title, objective, lane, 'created'],
-                (err) => {
-                    if (err) reject(err);
-                    else resolve(id);
-                }
-            );
-        });
-    }
-
-    public createRun(taskId: string, workerId: string, retryNum: number): Promise<string> {
-        const runId = randomUUID();
-        const idempotencyKey = `${taskId}_${retryNum}`;
-        return new Promise((resolve, reject) => {
-            this.db.run(
-                'INSERT INTO nexus_runs (run_id, task_id, worker_id, idempotency_key, status) VALUES (?, ?, ?, ?, ?)',
-                [runId, taskId, workerId, idempotencyKey, 'running'],
-                (err) => {
-                    if (err) reject(err);
-                    else resolve(runId);
-                }
-            );
-        });
-    }
-
-    public updateRunStatus(runId: string, status: string, errorStack?: string): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.db.run(
-                'UPDATE nexus_runs SET status = ?, error_stack = ?, ended_at = CURRENT_TIMESTAMP WHERE run_id = ?',
-                [status, errorStack || null, runId],
-                (err) => {
-                    if (err) reject(err);
-                    else resolve();
-                }
-            );
-        });
+    // Run Operations
+    public createRun(run: Omit<Run, 'run_id' | 'started_at' | 'ended_at' | 'status'> & { run_id?: string }): string {
+        const run_id = run.run_id || uuidv4();
+        const stmt = this.db.prepare(`
+            INSERT INTO nexus_runs (run_id, task_id, worker_id, idempotency_key)
+            VALUES (?, ?, ?, ?)
+        `);
+        
+        stmt.run(
+            run_id,
+            run.task_id,
+            run.worker_id,
+            run.idempotency_key
+        );
+        return run_id;
     }
     
-    public getTask(taskId: string): Promise<any> {
-        return new Promise((resolve, reject) => {
-            this.db.get('SELECT * FROM nexus_tasks WHERE id = ?', [taskId], (err, row) => {
-                if (err) reject(err);
-                else resolve(row);
-            });
-        });
-    }
+    // Concurrency safe Run Status Update using transaction
+    public updateRunStatus(runId: string, status: 'success' | 'failed', errorStack: string | null = null): void {
+        const updateRunStmt = this.db.prepare(`
+            UPDATE nexus_runs 
+            SET status = ?, error_stack = ?, ended_at = CURRENT_TIMESTAMP
+            WHERE run_id = ?
+        `);
 
-    public close(): Promise<void> {
-        return new Promise((resolve, reject) => {
-            this.db.close((err) => {
-                if (err) reject(err);
-                else resolve();
-            });
+        // Transaction ensures data integrity
+        const tx = this.db.transaction(() => {
+            updateRunStmt.run(status, errorStack, runId);
         });
+
+        tx();
+    }
+    
+    // Retrieve a task by ID
+    public getTask(id: string): Task | undefined {
+        const row = this.db.prepare('SELECT * FROM nexus_tasks WHERE id = ?').get(id) as any;
+        if (!row) return undefined;
+        return {
+            ...row,
+            payload_schema: JSON.parse(row.payload_schema),
+            ext_meta: JSON.parse(row.ext_meta)
+        };
+    }
+    
+    // Retrieve a run by ID
+    public getRun(runId: string): Run | undefined {
+        return this.db.prepare('SELECT * FROM nexus_runs WHERE run_id = ?').get(runId) as Run;
+    }
+    
+    // Helper to create required pre-requisites for testing
+    public _createProjectAndWorker(projectId: string, workerId: string): void {
+         const insertProject = this.db.prepare("INSERT OR IGNORE INTO nexus_projects (id, name, status) VALUES (?, 'Test Project', 'active')");
+         const insertWorker = this.db.prepare("INSERT OR IGNORE INTO nexus_workers (id, lane, status) VALUES (?, 'LANE_CODE', 'online')");
+         
+         const tx = this.db.transaction(() => {
+             insertProject.run(projectId);
+             insertWorker.run(workerId);
+         });
+         tx();
+    }
+    
+    public close(): void {
+        this.db.close();
     }
 }
+
+export default DAL;
