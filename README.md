@@ -96,7 +96,41 @@ sudo tailscale up
 * **访问大屏**：主理人无需在服务器防火墙上开放任何公网端口，直接在本地浏览器输入 `http://100.x.y.z:3030` 即可查看进度。
 * **Agent 接入**：在另一台机器上部署的 Coder Agent，其对接配置中的 `BASE_URL` 可以直接填入 `http://100.x.y.z:8000`，安全高效地完成跨机通信。
 
-> **注意**：如果您确实需要对全网公众公开，请使用 Caddy/Nginx 在宿主机配置反向代理，并为其绑定 SSL 证书。
+### 3. 直接对外发布 (无 Tailscale 场景)
+
+如果您因为网络环境限制无法使用 Tailscale，又必须在公网通过域名直接访问，可以通过 **Nginx 反向代理** 或 **Cloudflare Tunnels** 将本地端口暴露出去。
+
+**选项 A：使用 Nginx 反向代理 (传统方案)**
+在服务器宿主机安装 Nginx，并在 `/etc/nginx/sites-available/` 下配置如下转发规则，将域名请求引流到内网的 Docker 端口：
+
+```nginx
+server {
+    listen 80;
+    server_name dispatch.yourdomain.com; # 替换为您的域名
+
+    # 1. 代理 WebUI 大屏
+    location / {
+        proxy_pass http://127.0.0.1:3030;
+        proxy_http_version 1.1;
+        proxy_set_header Upgrade $http_upgrade; # 支持 SSE/WebSocket
+        proxy_set_header Connection "upgrade";
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+
+    # 2. 代理 API Server (如需异地 Agent 接入)
+    location /api/ {
+        proxy_pass http://127.0.0.1:8000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+    }
+}
+```
+*提示：配置完成后，强烈建议使用 `certbot --nginx` 自动签发并绑定 HTTPS 证书，防止被中间人拦截通信。*
+
+**选项 B：使用 Cloudflare Tunnels (极简且最安全，推荐)**
+如果您不想折腾 Nginx、不想买 SSL 证书、甚至不想在服务器上开放任何防火墙端口，可以使用 Cloudflare Tunnels（零信任隧道）。
+只需在服务器运行一行 `cloudflared` 指令，就可以直接将本地的 `localhost:3030` 穿透并映射到您的 Cloudflare 域名下。它原生自带 HTTPS 和 WAF 防护，是目前暴露内网面板最优雅的做法。
 
 ## 🔐 安全与红线约定
     77|* **SQL 注入防范**：无论是 PM Agent 还是查询工具，必须采用 ORM 或 Parameterized Queries，严禁拼接。
