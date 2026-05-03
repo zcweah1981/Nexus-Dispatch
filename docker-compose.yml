@@ -1,13 +1,45 @@
-version: '3.8'
+version: "3.8"
 
 services:
-  app:
+  nexus-db:
+    image: alpine:latest
+    command: ["tail", "-f", "/dev/null"]
+    volumes:
+      - ./data:/data
+    networks:
+      - nexus-internal
+
+  nexus-api:
     build:
       context: .
       dockerfile: Dockerfile
+    environment:
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///data/nexus.db}
+      - JWT_SECRET=${JWT_SECRET:-dummy_secret}
     ports:
-      - "8080:8080"
+      - "8000:8000"
     volumes:
       - .:/app
+      - ./data:/data
+    networks:
+      - nexus-internal
+    depends_on:
+      - nexus-db
+
+  nexus-daemon:
+    build:
+      context: .
+      dockerfile: Dockerfile
     environment:
-      - NODE_ENV=development
+      - DATABASE_URL=${DATABASE_URL:-sqlite:///data/nexus.db}
+    volumes:
+      - .:/app
+      - ./data:/data
+    networks:
+      - nexus-internal
+    depends_on:
+      - nexus-db
+
+networks:
+  nexus-internal:
+    driver: bridge
