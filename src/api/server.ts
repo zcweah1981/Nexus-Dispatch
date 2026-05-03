@@ -1,11 +1,19 @@
 import express, { Request, Response, NextFunction } from 'express';
+import cors from 'cors';
 import Ajv from 'ajv';
 import DAL from '../db/dal';
+import EventEmitter from 'events';
 
 const ajv = new Ajv();
 
+// Event emitter to broadcast state changes
+export const stateEmitter = new EventEmitter();
+
 export function createServer(dal: DAL, authToken: string = 'valid-token') {
     const app = express();
+    
+    // Enable CORS for frontend connection
+    app.use(cors());
     app.use(express.json());
 
     // Auth Middleware
@@ -16,6 +24,35 @@ export function createServer(dal: DAL, authToken: string = 'valid-token') {
         }
         next();
     };
+
+    // SSE Endpoint for frontend
+    app.get('/v1/events/stream', (req: Request, res: Response) => {
+        // Required headers for SSE
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+
+        // Send initial connection successful message
+        res.write(`data: ${JSON.stringify({ type: 'connected', message: 'SSE connection established' })}\n\n`);
+
+        // Keep-alive heartbeat every 15 seconds to prevent gateway timeout
+        const heartbeat = setInterval(() => {
+            res.write(`data: ${JSON.stringify({ type: 'ping', timestamp: Date.now() })}\n\n`);
+        }, 15000);
+
+        const onStateChange = (event: any) => {
+            res.write(`data: ${JSON.stringify(event)}\n\n`);
+        };
+
+        // Listen for internal state changes
+        stateEmitter.on('state_change', onStateChange);
+
+        // Cleanup on client disconnect
+        req.on('close', () => {
+            clearInterval(heartbeat);
+            stateEmitter.off('state_change', onStateChange);
+        });
+    });
 
     // Artifacts Webhook Endpoint
     app.post('/v1/webhook/artifacts', authMiddleware, (req: Request, res: Response) => {
@@ -89,6 +126,18 @@ export function createServer(dal: DAL, authToken: string = 'valid-token') {
                } catch (e) {
                    // Ignore if nexus_artifacts not created yet
                }
+               
+               // Broadcast state changes for the webhook updates
+               try {
+                   stateEmitter.emit('state_change', {
+                       type: 'run_status_updated',
+                       data: { run_id: run_id, status: 'success' }
+                   });
+                   stateEmitter.emit('state_change', {
+                       type: 'task_status_updated',
+                       data: { task_id: run.task_id, status: 'validating' }
+                   });
+               } catch (err) {}
            })();
         } catch (err) {
             return res.status(500).json({ error: 'Database transaction failed' });

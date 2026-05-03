@@ -45,6 +45,31 @@ class DAL {
     }
 
     // Task Operations
+    public updateTaskStatus(taskId: string, status: Task['status']): void {
+        const stmt = this.db.prepare(`
+            UPDATE nexus_tasks
+            SET status = ?
+            WHERE id = ?
+        `);
+        
+        const tx = this.db.transaction(() => {
+            stmt.run(status, taskId);
+            
+            // Broadcast state change
+            try {
+                const { stateEmitter } = require('../api/server');
+                if (stateEmitter) {
+                    stateEmitter.emit('state_change', {
+                        type: 'task_status_updated',
+                        data: { task_id: taskId, status }
+                    });
+                }
+            } catch (err) {}
+        });
+        
+        tx();
+    }
+
     public createTask(task: Omit<Task, 'id' | 'created_at' | 'status' | 'retry_count'> & { id?: string }): string {
         const id = task.id || uuidv4();
         const stmt = this.db.prepare(`
@@ -52,16 +77,30 @@ class DAL {
             VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         `);
         
-        stmt.run(
-            id,
-            task.project_id,
-            task.title,
-            task.objective,
-            task.lane,
-            JSON.stringify(task.payload_schema || {}),
-            JSON.stringify(task.ext_meta || {}),
-            task.max_retries || 3
-        );
+        const tx = this.db.transaction(() => {
+            stmt.run(
+                id,
+                task.project_id,
+                task.title,
+                task.objective,
+                task.lane,
+                JSON.stringify(task.payload_schema || {}),
+                JSON.stringify(task.ext_meta || {}),
+                task.max_retries || 3
+            );
+            
+            try {
+                const { stateEmitter } = require('../api/server');
+                if (stateEmitter) {
+                    stateEmitter.emit('state_change', {
+                        type: 'task_created',
+                        data: { task_id: id }
+                    });
+                }
+            } catch (err) {}
+        });
+        
+        tx();
         return id;
     }
 
@@ -73,12 +112,26 @@ class DAL {
             VALUES (?, ?, ?, ?)
         `);
         
-        stmt.run(
-            run_id,
-            run.task_id,
-            run.worker_id,
-            run.idempotency_key
-        );
+        const tx = this.db.transaction(() => {
+            stmt.run(
+                run_id,
+                run.task_id,
+                run.worker_id,
+                run.idempotency_key
+            );
+            
+            try {
+                const { stateEmitter } = require('../api/server');
+                if (stateEmitter) {
+                    stateEmitter.emit('state_change', {
+                        type: 'run_created',
+                        data: { run_id, task_id: run.task_id }
+                    });
+                }
+            } catch (err) {}
+        });
+        
+        tx();
         return run_id;
     }
     
@@ -93,6 +146,19 @@ class DAL {
         // Transaction ensures data integrity
         const tx = this.db.transaction(() => {
             updateRunStmt.run(status, errorStack, runId);
+            
+            // Broadcast state change if stateEmitter is available
+            try {
+                const { stateEmitter } = require('../api/server');
+                if (stateEmitter) {
+                    stateEmitter.emit('state_change', {
+                        type: 'run_status_updated',
+                        data: { run_id: runId, status, error_stack: errorStack }
+                    });
+                }
+            } catch (err) {
+                // Ignore if server module isn't loaded yet
+            }
         });
 
         tx();
