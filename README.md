@@ -55,16 +55,31 @@ curl -sSL https://raw.githubusercontent.com/zcweah1981/Nexus-Dispatch/main/insta
 1. `GET /health`：供中枢 Daemon 心跳探活，返回其当前可用槽位。
 2. `POST /v1/runs`：供中枢下发派单 JSON 载荷。
 
-### 步骤二：将 4 个 Agent 注册进主控 SQLite 数据库
+### 步骤二：通过 API 将 4 个 Agent 注册进主控
+系统提供了标准的 RESTful API 用于节点动态注册。在主控系统启动后，直接使用 `curl` 命令将这 4 个 Agent 的名字、地址与**专属赛道(Lane)** 注册到中枢：
+
 ```bash
-# 登录 SQLite 数据库，执行注册 SQL
-sqlite3 /opt/nexus-dispatch/data/nexus.db "
-INSERT INTO agents (agent_id, endpoint, metadata_json, created_at, updated_at) VALUES 
-('long-coder-1', 'http://127.0.0.1:8647/v1/runs', '{\"lane\": \"DEV\", \"health_status\": \"healthy\", \"max_concurrency\": 1}', datetime('now'), datetime('now')),
-('shun-designer-1', 'http://127.0.0.1:8645/v1/runs', '{\"lane\": \"DESIGN\", \"health_status\": \"healthy\", \"max_concurrency\": 1}', datetime('now'), datetime('now')),
-('hyoga-ops-1', 'http://127.0.0.1:8648/v1/runs', '{\"lane\": \"OPS\", \"health_status\": \"healthy\", \"max_concurrency\": 1}', datetime('now'), datetime('now')),
-('ikki-content-1', 'http://127.0.0.1:8649/v1/runs', '{\"lane\": \"CONTENT\", \"health_status\": \"healthy\", \"max_concurrency\": 1}', datetime('now'), datetime('now'));
-"
+# 注册 Coder Agent (开发赛道)
+curl -X POST http://localhost:8000/api/v1/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "long-coder-1",
+    "endpoint": "http://127.0.0.1:8647/v1/runs",
+    "lane": "DEV",
+    "max_concurrency": 1
+  }'
+
+# 注册 Designer Agent (设计赛道)
+curl -X POST http://localhost:8000/api/v1/agents/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "agent_id": "shun-designer-1",
+    "endpoint": "http://127.0.0.1:8645/v1/runs",
+    "lane": "DESIGN",
+    "max_concurrency": 1
+  }'
+  
+# (以此类推，注册 OPS 和 CONTENT 节点...)
 ```
 
 ---
