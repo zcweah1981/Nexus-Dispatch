@@ -1,0 +1,9 @@
+{
+  "task_id": "proj-nexus-v71:t6-1",
+  "status": "completed",
+  "proofs": {
+    "test_passed": true,
+    "test_log_snippet": "PASS src/gateway/telegram_webhook.test.ts (18.19 s)\\nTest Suites: 23 passed, 23 total\\nTests:       52 passed, 52 total"
+  },
+  "blocked_by": null
+}
