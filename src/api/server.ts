@@ -3,6 +3,9 @@ import cors from 'cors';
 import Ajv from 'ajv';
 import DAL from '../db/dal';
 import EventEmitter from 'events';
+import { v4 as uuidv4 } from 'uuid';
+import * as fs from 'fs';
+import * as path from 'path';
 
 const ajv = new Ajv();
 
@@ -24,6 +27,62 @@ export function createServer(dal: DAL, authToken: string = 'valid-token') {
         }
         next();
     };
+
+    // Project Init Endpoint
+    app.post('/v1/projects/init', authMiddleware, (req: Request, res: Response) => {
+        const { name, description } = req.body;
+        if (!name) {
+            return res.status(400).json({ error: 'Missing required field: name' });
+        }
+
+        const projectId = uuidv4();
+        try {
+            (dal as any).db.transaction(() => {
+                const stmt = (dal as any).db.prepare(`
+                    INSERT INTO nexus_projects (id, name, description)
+                    VALUES (?, ?, ?)
+                `);
+                stmt.run(projectId, name, description || null);
+            })();
+
+            // Initialize physical directory tree
+            const projectRoot = path.resolve(process.env.NEXUS_ROOT || '/root/.hermes/projects', projectId);
+            if (!fs.existsSync(projectRoot)) {
+                fs.mkdirSync(projectRoot, { recursive: true });
+                fs.writeFileSync(path.join(projectRoot, 'PROJECT.md'), `# ${name}\n\n${description || ''}`);
+                fs.writeFileSync(path.join(projectRoot, 'FILE_INDEX.md'), '# File Index\n');
+            }
+
+            return res.status(201).json({ id: projectId, name, status: 'active' });
+        } catch (error: any) {
+            return res.status(500).json({ error: 'Failed to init project', details: error.message });
+        }
+    });
+
+    // Agent Register Endpoint
+    app.post('/v1/agents/register', authMiddleware, (req: Request, res: Response) => {
+        const { id, lane } = req.body;
+        if (!id || !lane) {
+            return res.status(400).json({ error: 'Missing required fields: id, lane' });
+        }
+
+        try {
+            (dal as any).db.transaction(() => {
+                const stmt = (dal as any).db.prepare(`
+                    INSERT INTO nexus_workers (id, lane, status, last_heartbeat)
+                    VALUES (?, ?, 'online', CURRENT_TIMESTAMP)
+                    ON CONFLICT(id) DO UPDATE SET
+                    lane = excluded.lane,
+                    status = 'online',
+                    last_heartbeat = CURRENT_TIMESTAMP
+                `);
+                stmt.run(id, lane);
+            })();
+            return res.status(200).json({ id, lane, status: 'online' });
+        } catch (error: any) {
+            return res.status(500).json({ error: 'Failed to register agent', details: error.message });
+        }
+    });
 
     // SSE Endpoint for frontend
     app.get('/v1/events/stream', (req: Request, res: Response) => {
@@ -95,9 +154,8 @@ export function createServer(dal: DAL, authToken: string = 'valid-token') {
             });
         }
 
-        // Write artifact to DB (Mock artifact write for now, as schema doesn't specify nexus_artifacts table yet)
         const stmt = (dal as any).db.prepare(`
-            INSERT INTO nexus_artifacts (id, run_id, artifact_type, payload_data)
+            INSERT INTO nexus_artifacts (id, run_id, artifact_type, payload)
             VALUES (?, ?, ?, ?)
         `);
         const uuidv4 = require('uuid').v4;
@@ -120,11 +178,10 @@ export function createServer(dal: DAL, authToken: string = 'valid-token') {
                `);
                updateTaskStmt.run(run.task_id);
                
-               // Mock Artifacts insert, ignoring failure if table doesn't exist
                try {
                    stmt.run(uuidv4(), run_id, artifact_type, JSON.stringify(payload));
                } catch (e) {
-                   // Ignore if nexus_artifacts not created yet
+                   console.error('Failed to insert artifact', e);
                }
                
                // Broadcast state changes for the webhook updates
