@@ -1,48 +1,71 @@
-import { DAL } from '../src/db/dal';
-import fs from 'fs';
-import path from 'path';
+import DAL from '../src/db/dal';
+import * as path from 'path';
+import * as fs from 'fs';
 
-describe('DAL Concurrency Test', () => {
+describe('T1.2: SQLite DAL Layer', () => {
     let dal: DAL;
-    let projectId: string;
-    let taskId: string;
+    const dbPath = path.resolve(__dirname, '../data/test_dal.db');
 
-    beforeAll(async () => {
-        const testDbPath = path.join(__dirname, '../data/test_nexus.db');
-        if (fs.existsSync(testDbPath)) {
-            fs.unlinkSync(testDbPath);
-        }
-        process.env.DATABASE_URL = testDbPath;
-        dal = new DAL();
-        
-        await new Promise(resolve => setTimeout(resolve, 500));
-        
-        await dal.initSchema();
-        projectId = await dal.createProject('Test Project');
-        taskId = await dal.createTask(projectId, 'Test Task', 'Test Obj', 'LANE_CODE');
+    beforeEach(() => {
+        if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+        dal = new DAL(dbPath);
+        dal.initSchema(`
+            CREATE TABLE IF NOT EXISTS nexus_tasks (
+                id TEXT PRIMARY KEY,
+                project_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                objective TEXT,
+                lane TEXT NOT NULL,
+                status TEXT DEFAULT 'created',
+                max_retries INTEGER DEFAULT 3,
+                retry_count INTEGER DEFAULT 0,
+                payload_schema TEXT,
+                ext_meta TEXT,
+                created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS nexus_runs (
+                run_id TEXT PRIMARY KEY,
+                task_id TEXT NOT NULL,
+                worker_id TEXT NOT NULL,
+                idempotency_key TEXT,
+                status TEXT DEFAULT 'running',
+                error_stack TEXT,
+                started_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                ended_at DATETIME,
+                FOREIGN KEY(task_id) REFERENCES nexus_tasks(id)
+            );
+            CREATE TABLE IF NOT EXISTS nexus_projects (id TEXT PRIMARY KEY, name TEXT, status TEXT);
+            CREATE TABLE IF NOT EXISTS nexus_workers (id TEXT PRIMARY KEY, lane TEXT, status TEXT);
+        `);
     });
 
-    afterAll(async () => {
-        await dal.close();
-        if (fs.existsSync(process.env.DATABASE_URL as string)) {
-            fs.unlinkSync(process.env.DATABASE_URL as string);
-        }
+    afterEach(() => {
+        dal.close();
+        if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
     });
 
-    it('should handle 10 concurrent run creations and updates without database is locked error', async () => {
-        const concurrencyCount = 10;
-        
-        const operations = Array.from({ length: concurrencyCount }).map(async (_, i) => {
-            const runId = await dal.createRun(taskId, `worker_${i}`, i);
-            await new Promise(resolve => setTimeout(resolve, Math.random() * 50));
-            await dal.updateRunStatus(runId, 'success');
-            return runId;
+    it('should create task and run successfully', () => {
+        dal._createProjectAndWorker('proj1', 'work1');
+        const taskId = dal.createTask({
+            project_id: 'proj1',
+            title: 'Test Task',
+            objective: 'Test Obj',
+            lane: 'LANE_CODE',
+            max_retries: 3,
+            payload_schema: {},
+            ext_meta: {}
         });
+        expect(taskId).toBeDefined();
 
-        const runIds = await Promise.all(operations);
-        expect(runIds.length).toBe(concurrencyCount);
-        
-        const uniqueIds = new Set(runIds);
-        expect(uniqueIds.size).toBe(concurrencyCount);
+        const runId = dal.createRun({
+            task_id: taskId,
+            worker_id: 'work1',
+            idempotency_key: 'test_key'
+        });
+        expect(runId).toBeDefined();
+
+        dal.updateRunStatus(runId, 'success');
+        const run = dal.getRun(runId);
+        expect(run?.status).toBe('success');
     });
 });

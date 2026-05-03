@@ -43,7 +43,7 @@ class Daemon {
             const workerUrl = 'http://localhost:8001/v1/webhook/artifacts'; // placeholder
 
             // Generate payload using AdapterFactory
-            const adapter = AdapterFactory.get_adapter('OpenClaw');
+            const adapter = AdapterFactory.get_adapter('openclaw');
             const payload = adapter.adapt(task);
             
             // Send payload to worker

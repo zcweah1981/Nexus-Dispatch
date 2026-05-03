@@ -1,0 +1,10 @@
+{
+  "task_id": "nd-v7-t5-1",
+  "status": "completed",
+  "proofs": {
+    "git_commit_sha": "b7779ca0860f5f2daafcb8ba00ad2a9d5268f781",
+    "test_passed": true,
+    "test_log_snippet": "PASS tests/gateway.test.ts (17.03 s)\n  Channel Gateway (Telegram) Debouncing\n    ✓ AC1: should debounce rapid duplicate update IDs within 2 seconds (206 ms)\n    ✓ should process different update IDs (35 ms)\n\nTest Suites: 1 passed, 1 total\nTests:       2 passed, 2 total"
+  },
+  "blocked_by": null
+}
