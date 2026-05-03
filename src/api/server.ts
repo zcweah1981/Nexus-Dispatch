@@ -12,12 +12,17 @@ const ajv = new Ajv();
 // Event emitter to broadcast state changes
 export const stateEmitter = new EventEmitter();
 
+import { createApiRouter } from './routes';
+
 export function createServer(dal: DAL, authToken: string = 'valid-token') {
     const app = express();
     
     // Enable CORS for frontend connection
     app.use(cors());
     app.use(express.json());
+
+    // API Routes
+    app.use('/api/v1', createApiRouter(dal, authToken));
 
     // Auth Middleware
     const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
