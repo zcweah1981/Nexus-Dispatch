@@ -55,12 +55,22 @@ cd Nexus-Dispatch
 cp .env.example .env
 
 # 3. 启动基础设施与守护进程
-docker compose up -d
+docker compose up -d --build
 
 # 4. 访问观测大屏
-# WebUI (Dashboard): http://localhost:3000
+# WebUI (Dashboard): http://localhost:3030
 # API Swagger: http://localhost:8000/docs
 ```
+
+### 多 Worker Agent (执行节点) 接入说明
+本系统被设计为一个独立的主控中枢 (Control Plane)，它可以同时管理多个下挂的执行智能体 (Agents)。
+Worker 的接入原理如下：
+
+1. **接口暴露**：每个 Agent 自身需要暴露一个 HTTP Server（例如 `http://127.0.0.1:8647`），提供至少两个端点：
+   * `POST /v1/runs`：用于接收 PM Daemon 发出的任务派发 Payload。
+   * `GET /health`：用于向 PM Daemon 汇报自身的健康心跳与排队状态。
+2. **注册赛道 (Lane)**：在主控系统的 SQLite 数据库 `agents` 表中录入 Agent 信息。例如，配置名为 `long-coder-1` 的 Agent，并绑定其专攻的赛道为 `DEV`，配置其端点为 `http://127.0.0.1:8647/v1/runs`。
+3. **自动分发**：当 PM 拆解出一个 `lane="DEV"` 的前端代码任务时，底层的 `nexus-daemon` 轮询时会自动发现该任务，并从 `agents` 表里选取一个存活的 `DEV` 节点，向其 `/v1/runs` 发出 HTTP 异步派单请求。
 
 ## 🔐 安全与红线约定
 * **SQL 注入防范**：无论是 PM Agent 还是查询工具，必须采用 ORM 或 Parameterized Queries，严禁拼接。
