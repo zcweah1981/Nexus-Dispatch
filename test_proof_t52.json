@@ -1,0 +1,10 @@
+{
+  "task_id": "t3-auto-1e50-t5-2",
+  "status": "completed",
+  "proofs": {
+    "git_commit_sha": "810960a61257d8053b6e348de270e655cfbc71db",
+    "test_passed": true,
+    "test_log_snippet": "Test Suites: 23 passed, 23 total\\nTests:       52 passed, 52 total"
+  },
+  "blocked_by": null
+}

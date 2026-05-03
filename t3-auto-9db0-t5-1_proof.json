@@ -1,0 +1,10 @@
+{
+  "task_id": "T5.1",
+  "status": "completed",
+  "proofs": {
+    "git_commit_sha": "09b9a1a124449c904b4d1a43a7e3229ec73f6149",
+    "test_passed": true,
+    "test_log_snippet": "PASS src/gateway/telegram_webhook.test.ts (11.296 s)\nPASS tests/gateway/gateway.test.ts\nPASS dist/tests/gateway/gateway.test.js\nPASS dist/tests/gateway.test.js"
+  },
+  "blocked_by": null
+}

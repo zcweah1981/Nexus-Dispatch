@@ -2,10 +2,11 @@ import React, { useState } from 'react';
 import DAGView from './components/DAGView';
 import FleetRadar from './components/FleetRadar';
 import ArtifactGallery from './components/ArtifactGallery';
+import SettingsPanel from './components/SettingsPanel';
 import 'reactflow/dist/style.css';
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'dag' | 'radar' | 'gallery'>('dag');
+  const [activeTab, setActiveTab] = useState<'dag' | 'radar' | 'gallery' | 'settings'>('dag');
 
   return (
     <div className="h-screen w-screen flex flex-col bg-gray-900 text-white overflow-hidden">
@@ -36,6 +37,14 @@ const App: React.FC = () => {
           >
             Artifact Gallery
           </button>
+          <button
+            className={`px-4 py-2 rounded-md transition-colors text-sm font-medium ${
+              activeTab === 'settings' ? 'bg-blue-600 text-white shadow-sm' : 'text-gray-400 hover:text-white hover:bg-gray-800'
+            }`}
+            onClick={() => setActiveTab('settings')}
+          >
+            Agent Roster / PM Settings
+          </button>
         </div>
       </header>
 
@@ -43,6 +52,7 @@ const App: React.FC = () => {
         {activeTab === 'dag' && <DAGView />}
         {activeTab === 'radar' && <FleetRadar />}
         {activeTab === 'gallery' && <ArtifactGallery />}
+        {activeTab === 'settings' && <SettingsPanel />}
       </main>
     </div>
   );

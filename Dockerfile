@@ -1,10 +1,15 @@
 # Base image
-FROM node:18-alpine
+FROM node:20-alpine
 
 # Set working directory
 WORKDIR /app
 
-# The context . will be mounted via docker-compose during development.
-# For production builds, we would copy files here.
+# Install build dependencies for better-sqlite3
+RUN apk add --no-cache python3 make g++ 
 
-CMD ["echo", "Nexus Dispatch Project Initialized"]
+# The context . will be mounted via docker-compose during development.
+# Install dependencies
+COPY package*.json ./
+RUN npm install && npm rebuild better-sqlite3
+
+CMD ["npm", "run", "dev"]
