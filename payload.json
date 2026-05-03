@@ -1,10 +1,10 @@
 {
-  "task_id": "nd-v7-t5-1",
+  "task_id": "nd-v7-t5-3",
   "status": "completed",
   "proofs": {
-    "git_commit_sha": "b7779ca0860f5f2daafcb8ba00ad2a9d5268f781",
+    "git_commit_sha": "60c33a9ea778cf5e9c6dfc210e3cbd682edd9e2d",
     "test_passed": true,
-    "test_log_snippet": "PASS tests/gateway.test.ts (17.03 s)\n  Channel Gateway (Telegram) Debouncing\n    ✓ AC1: should debounce rapid duplicate update IDs within 2 seconds (206 ms)\n    ✓ should process different update IDs (35 ms)\n\nTest Suites: 1 passed, 1 total\nTests:       2 passed, 2 total"
+    "test_log_snippet": "PASS __tests__/sandbox.test.ts\nSandbox Utilities\n  ✓ should create project environment skeleton\n  ✓ should allow reading and writing within sandbox\n  ✓ should block path traversal outside sandbox"
   },
   "blocked_by": null
 }
