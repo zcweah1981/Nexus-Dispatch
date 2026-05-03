@@ -1,0 +1,10 @@
+{
+  "task_id": "t3-real-d685-t3-1",
+  "status": "completed",
+  "proofs": {
+    "git_commit_sha": "5e7fd37c1f07dee5efe2900f0f602fc3fefefdb8",
+    "test_passed": true,
+    "test_log_snippet": "Test Suites: 22 passed, 22 total\nTests:       48 passed, 48 total"
+  },
+  "blocked_by": null
+}

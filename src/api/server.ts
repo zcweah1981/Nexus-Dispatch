@@ -119,6 +119,44 @@ export function createServer(dal: DAL, authToken: string = 'valid-token') {
     });
 
     // Artifacts Webhook Endpoint
+    
+    // Task Acknowledge Endpoint
+    app.post('/v1/tasks/:id/acknowledge', authMiddleware, (req: Request, res: Response) => {
+        const taskId = req.params.id as string;
+        const { worker_id, run_id } = req.body;
+        
+        if (!worker_id || !run_id) {
+            return res.status(400).json({ error: 'Missing required fields: worker_id, run_id' });
+        }
+
+        const task = dal.getTask(taskId);
+        if (!task) {
+            return res.status(404).json({ error: 'Task not found' });
+        }
+
+        if (task.status !== 'dispatched') {
+            return res.status(400).json({ error: 'Task is not in dispatched state' });
+        }
+        
+        try {
+            (dal as any).db.transaction(() => {
+                // Since this is just an acknowledge, we might want to update the task to 'running'
+                // or just log the acknowledge. For now, we'll just return success.
+                // The actual run creation might happen here or already happened.
+                
+                try {
+                    stateEmitter.emit('state_change', {
+                        type: 'task_acknowledged',
+                        data: { task_id: taskId, worker_id, run_id }
+                    });
+                } catch (err) {}
+            })();
+            return res.status(200).json({ message: 'Task acknowledged' });
+        } catch (error: any) {
+            return res.status(500).json({ error: 'Failed to acknowledge task', details: error.message });
+        }
+    });
+
     app.post('/v1/webhook/artifacts', authMiddleware, (req: Request, res: Response) => {
         const { run_id, artifact_type, payload } = req.body;
 

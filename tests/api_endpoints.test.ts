@@ -143,3 +143,33 @@ describe('API Endpoints: /v1/agents/register and /v1/projects/init', () => {
         expect(response.body.error).toContain('Missing required field');
     });
 });
+
+
+describe('API Endpoints: /v1/tasks/:id/acknowledge', () => {
+    it('should acknowledge a task successfully', async () => {
+        // Setup initial task
+        dal._createProjectAndWorker('proj-1', 'worker-1');
+        const taskId = dal.createTask({
+            project_id: 'proj-1', // Ensure project exists for foreign key
+            title: 'Test Task for Ack',
+            objective: 'Test Objective',
+            lane: 'DEV',
+            payload_schema: {},
+            ext_meta: {},
+            max_retries: 3
+        });
+        
+        dal.updateTaskStatus(taskId, 'dispatched');
+        
+        const response = await request(app)
+            .post(`/v1/tasks/${taskId}/acknowledge`)
+            .set('Authorization', `Bearer ${AUTH_TOKEN}`)
+            .send({
+                worker_id: 'worker-1',
+                run_id: 'run-1'
+            });
+            
+        expect(response.status).toBe(200);
+        expect(response.body.message).toBe('Task acknowledged');
+    });
+});
