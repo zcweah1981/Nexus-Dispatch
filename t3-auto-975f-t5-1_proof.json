@@ -1,0 +1,10 @@
+{
+  "task_id": "T5.1",
+  "status": "completed",
+  "proofs": {
+    "git_commit_sha": "5e4799bc6cb8b858898b2bd19613437fbf24f506",
+    "test_passed": true,
+    "test_log_snippet": "PASS ./telegram_webhook.test.ts (15.84 s)\n  TelegramGateway\n    ✓ should ignore duplicate updates within debounce window (89 ms)\n    ✓ should process multiple identical concurrent updates, allowing only the first (40 ms)\n\nTest Suites: 1 passed, 1 total"
+  },
+  "blocked_by": null
+}
