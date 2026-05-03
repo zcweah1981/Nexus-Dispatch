@@ -89,12 +89,16 @@ export function createServer(dal: DAL, authToken: string = 'valid-token') {
         }
     });
 
+    // Move the root-level v1 endpoints into the router or change the path to avoid conflicts
     // SSE Endpoint for frontend
     app.get('/v1/events/stream', (req: Request, res: Response) => {
         // Required headers for SSE
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
+        
+        // Also enable CORS specifically for this endpoint if needed
+        res.setHeader('Access-Control-Allow-Origin', '*');
 
         // Send initial connection successful message
         res.write(`data: ${JSON.stringify({ type: 'connected', message: 'SSE connection established' })}\n\n`);

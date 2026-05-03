@@ -106,68 +106,44 @@ const DAGView: React.FC = () => {
     []
   );
 
-  // Mock SSE stream
+  // Use SSE stream instead of mock data
   useEffect(() => {
-    let step = 0;
-    const interval = setInterval(() => {
-      step++;
-      
-      setNodes((nds) => 
-        nds.map((node) => {
-          if (step === 1 && node.id === '2') {
-            return { ...node, data: { ...node.data, status: 'completed' } };
-          }
-          if (step === 1 && node.id === '4') {
-            return { ...node, data: { ...node.data, status: 'running', workerId: 'long-coder-1' } };
-          }
-          if (step === 2 && node.id === '4') {
-            setToastMsg("Warning: Node `long-coder-1` blocked on T3: Core Logic");
-            setTimeout(() => setToastMsg(null), 5000);
-            return { ...node, data: { ...node.data, status: 'blocked' } };
-          }
-          if (step === 4 && node.id === '4') {
-            setToastMsg("Info: Task T3 rescheduled to `long-coder-2`");
-            setTimeout(() => setToastMsg(null), 3000);
-            return { ...node, data: { ...node.data, status: 'running', workerId: 'long-coder-2' } };
-          }
-          if (step === 6 && node.id === '4') {
-            return { ...node, data: { ...node.data, status: 'completed' } };
-          }
-          if (step === 6 && node.id === '5') {
-            return { ...node, data: { ...node.data, status: 'running', workerId: 'qa-bot-1' } };
-          }
-          return node;
-        })
-      );
+    const eventSource = new EventSource('/api/v1/events/stream');
 
-      setEdges((eds) => 
-        eds.map((edge) => {
-          if (step === 1 && edge.id === 'e1-2') {
-            return { ...edge, animated: false, style: { stroke: '#22c55e' } };
-          }
-          if (step === 1 && (edge.id === 'e2-4' || edge.id === 'e3-4')) {
-            return { ...edge, animated: true, style: { stroke: '#3b82f6' } };
-          }
-          if (step === 2 && (edge.id === 'e2-4' || edge.id === 'e3-4')) {
-            return { ...edge, animated: false, style: { stroke: '#ef4444' } };
-          }
-          if (step === 4 && (edge.id === 'e2-4' || edge.id === 'e3-4')) {
-            return { ...edge, animated: true, style: { stroke: '#3b82f6' } };
-          }
-          if (step === 6 && (edge.id === 'e2-4' || edge.id === 'e3-4')) {
-            return { ...edge, animated: false, style: { stroke: '#22c55e' } };
-          }
-          if (step === 6 && edge.id === 'e4-5') {
-            return { ...edge, animated: true, style: { stroke: '#3b82f6' } };
-          }
-          return edge;
-        })
-      );
-      
-      if (step > 8) step = 0; // loop the mock
-    }, 4000);
+    eventSource.onmessage = (event) => {
+      try {
+        const parsedData = JSON.parse(event.data);
+        console.log('Received SSE:', parsedData);
+        
+        if (parsedData.type === 'task_status_updated') {
+            setNodes((nds) => 
+                nds.map((node) => {
+                    // Match node.id with parsedData.data.task_id if possible, or update by label if ids differ
+                    if (node.id === parsedData.data.task_id || node.data.label.includes(parsedData.data.task_id)) {
+                        return { ...node, data: { ...node.data, status: parsedData.data.status } };
+                    }
+                    return node;
+                })
+            );
+        }
+        
+        if (parsedData.type === 'run_status_updated') {
+             // You can add logic to update edge styles based on run status
+             // or update workerId if run_created provides it.
+        }
+      } catch (error) {
+        console.error('Error parsing SSE data:', error);
+      }
+    };
 
-    return () => clearInterval(interval);
+    eventSource.onerror = (error) => {
+      console.error('EventSource failed:', error);
+      eventSource.close();
+    };
+
+    return () => {
+      eventSource.close();
+    };
   }, []);
 
   return (
