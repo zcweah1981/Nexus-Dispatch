@@ -38,6 +38,13 @@ class Daemon {
                 const adapter = AdapterFactory.get_adapter('openclaw');
                 const payload = adapter.adapt(task);
                 
+                // Enforce chroot workdir injection in task payload
+                if (task.project_id) {
+                    const basePath = process.env.NEXUS_PROJECTS_BASE || '/.hermes/projects';
+                    const workdir = require('path').resolve(basePath, task.project_id);
+                    payload.payload.workdir = workdir;
+                }
+
                 // Send payload
                 await axios.post(workerUrl, payload, { timeout: 3000 });
             } catch (error: any) {

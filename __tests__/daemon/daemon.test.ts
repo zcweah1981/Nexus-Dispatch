@@ -40,7 +40,11 @@ describe('Daemon Preemptive Scheduling Loop via REST API', () => {
         expect(mockedAxios.post).toHaveBeenNthCalledWith(
             2, 
             'http://localhost:8001/v1/webhook/artifacts', 
-            expect.any(Object), 
+            expect.objectContaining({
+                payload: expect.objectContaining({
+                    workdir: expect.stringContaining('/.hermes/projects/p1')
+                })
+            }), 
             expect.objectContaining({ timeout: 3000 })
         );
     });
