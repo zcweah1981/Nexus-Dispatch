@@ -15,7 +15,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - DATABASE_URL=${DATABASE_URL:-sqlite:///data/nexus.db}
-      - JWT_SECRET=${JWT_SECRET:-dummy_secret}
+      - JWT_SECRET=${JWT_SECRET:-your_super_secret_jwt_key}
     ports:
       - "8000:8000"
     volumes:
@@ -39,6 +39,15 @@ services:
       - nexus-internal
     depends_on:
       - nexus-db
+
+  nexus-webui:
+    image: nginx:alpine
+    ports:
+      - "3000:80"
+    volumes:
+      - ./src/webui/dist:/usr/share/nginx/html:ro
+    networks:
+      - nexus-internal
 
 networks:
   nexus-internal:
