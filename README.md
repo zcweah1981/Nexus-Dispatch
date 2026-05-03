@@ -30,47 +30,48 @@ Nexus Dispatch 旨在解决大模型在处理长周期、多节点（PM, Coder, 
    │◄── (项目完结通报)│                   │                  │                 │
 ```
 
-## 📋 V1.0 本期交付功能矩阵
+## 🚀 极简部署 (Quick Start)
 
-本项目已按照 PRD V7.0 完成下述 7 大核心需求的拆解与研发：
-
-- [x] **需求 1：系统底层重构** (控制面脚手架与容器网络编排、SQLite SSoT物理建表与 DAL 封装)
-- [x] **需求 2：Channel Gateway 防抖** (Telegram 防抖与防重入机制，防止瞬时并发雪崩)
-- [x] **需求 3：PM Core 沙盒控制** (会话隔离与状态重入机制，项目脚手架与沙盒目录读写约束)
-- [x] **需求 4：DAG 计算引擎** (环路检测与死锁防范算法)
-- [x] **需求 5：调度 Daemon** (后台守护进程抢占式 SQLite 调度循环)
-- [x] **需求 6：Artifact 强校验** (零信任 Webhook 验收接口 API 与跨系统方言适配器)
-- [x] **需求 7：WebUI 纯观测大屏** (SSE 长连接流推服务、React Flow 拓扑指挥所、算力雷达与交付展厅)
-
-## 🚀 快速启动
-
-本系统使用 Docker Compose 进行容器化编排与网络隔离，包含 `nexus-db`, `nexus-api`, `nexus-daemon`, 和 `nexus-webui` 节点。
+为了最大程度降低用户的部署门槛，我们提供了一键安装脚本。您无需手动执行克隆、拷贝变量或构建等复杂指令，只需在宿主机终端执行以下**一条命令**：
 
 ```bash
-# 1. 克隆仓库
-git clone git@github.com:zcweah1981/Nexus-Dispatch.git
-cd Nexus-Dispatch
-
-# 2. 环境初始化
-cp .env.example .env
-
-# 3. 启动基础设施与守护进程
-docker compose up -d --build
-
-# 4. 访问观测大屏
-# WebUI (Dashboard): http://localhost:3030
-# API Swagger: http://localhost:8000/docs
+curl -sSL https://raw.githubusercontent.com/zcweah1981/Nexus-Dispatch/main/install.sh | bash
 ```
 
-### 多 Worker Agent (执行节点) 接入说明
-本系统被设计为一个独立的主控中枢 (Control Plane)，它可以同时管理多个下挂的执行智能体 (Agents)。
-Worker 的接入原理如下：
+该脚本会自动为您在 `/opt/nexus-dispatch` 目录拉取最新代码、初始化隔离的数据卷环境并自动拉起所有微服务。
 
-1. **接口暴露**：每个 Agent 自身需要暴露一个 HTTP Server（例如 `http://127.0.0.1:8647`），提供至少两个端点：
-   * `POST /v1/runs`：用于接收 PM Daemon 发出的任务派发 Payload。
-   * `GET /health`：用于向 PM Daemon 汇报自身的健康心跳与排队状态。
-2. **注册赛道 (Lane)**：在主控系统的 SQLite 数据库 `agents` 表中录入 Agent 信息。例如，配置名为 `long-coder-1` 的 Agent，并绑定其专攻的赛道为 `DEV`，配置其端点为 `http://127.0.0.1:8647/v1/runs`。
-3. **自动分发**：当 PM 拆解出一个 `lane="DEV"` 的前端代码任务时，底层的 `nexus-daemon` 轮询时会自动发现该任务，并从 `agents` 表里选取一个存活的 `DEV` 节点，向其 `/v1/runs` 发出 HTTP 异步派单请求。
+**访问大屏与接口**：
+* WebUI (拓扑观测大屏): `http://localhost:3030`
+* API Swagger (接口调试): `http://localhost:8000/docs`
+
+---
+
+## 🔌 接入 4 个 Worker Agent (执行节点) 操作指南
+
+本系统作为独立的主控中枢 (Control Plane)，支持外挂多个异构执行智能体 (Agents) 如 Coder, Designer, Ops, Content 等。**执行节点不需要也不应该打包进主控的 Docker 内。** 挂载这 4 个 Agent 仅需简单的注册操作：
+
+### 步骤一：启动执行节点的 API 服务
+在各自的执行环境（本机或其他服务器）上启动 Agent，并确保其暴露 HTTP 服务。该服务必须提供以下两个接口：
+1. `GET /health`：供中枢 Daemon 心跳探活，返回其当前可用槽位。
+2. `POST /v1/runs`：供中枢下发派单 JSON 载荷。
+
+### 步骤二：将 4 个 Agent 注册进主控 SQLite 数据库
+在主控系统启动后，直接使用 SQL 将这 4 个 Agent 的名字、端口与**专属赛道(Lane)** 录入数据库（在实际应用中，可通过 `POST /v1/agents` 接口动态注册，这里演示底层原理）：
+
+```bash
+# 登录 SQLite 数据库，执行注册 SQL
+sqlite3 /opt/nexus-dispatch/data/nexus.db "
+INSERT INTO agents (agent_id, endpoint, metadata_json, created_at, updated_at) VALUES 
+('long-coder-1', 'http://127.0.0.1:8647/v1/runs', '{"lane": "DEV", "health_status": "healthy", "max_concurrency": 1}', datetime('now'), datetime('now')),
+('shun-designer-1', 'http://127.0.0.1:8645/v1/runs', '{"lane": "DESIGN", "health_status": "healthy", "max_concurrency": 1}', datetime('now'), datetime('now')),
+('hyoga-ops-1', 'http://127.0.0.1:8648/v1/runs', '{"lane": "OPS", "health_status": "healthy", "max_concurrency": 1}', datetime('now'), datetime('now')),
+('ikki-content-1', 'http://127.0.0.1:8649/v1/runs', '{"lane": "CONTENT", "health_status": "healthy", "max_concurrency": 1}', datetime('now'), datetime('now'));
+"
+```
+
+### 步骤三：系统自动化发现与分发
+1. 完成注册后，主控的 `nexus-daemon` 守护进程会在下一个 60 秒心跳周期自动通过 `GET /health` 发现这 4 个节点。
+2. 当 PM 拆解出一个带有 `lane="DEV"` 标签的“前端开发任务”时，Daemon 会精准地将任务派发给 `long-coder-1`。如果是画图任务 (`lane="DESIGN"`)，则会自动派发给 `shun-designer-1`，全自动无缝运转。
 
 ## 🔐 安全与红线约定
 * **SQL 注入防范**：无论是 PM Agent 还是查询工具，必须采用 ORM 或 Parameterized Queries，严禁拼接。
