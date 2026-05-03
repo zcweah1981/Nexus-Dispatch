@@ -160,7 +160,7 @@ export function createServer(dal: DAL, authToken: string = 'valid-token') {
         }
 
         const stmt = (dal as any).db.prepare(`
-            INSERT INTO nexus_artifacts (id, run_id, artifact_type, payload)
+            INSERT INTO nexus_artifacts (id, run_id, artifact_type, payload_data)
             VALUES (?, ?, ?, ?)
         `);
         const uuidv4 = require('uuid').v4;
