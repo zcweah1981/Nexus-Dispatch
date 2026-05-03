@@ -1,62 +1,58 @@
 import axios from 'axios';
-import DAL from '../db/dal';
 import { AdapterFactory } from '../adapters';
 
 // Sleep helper
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class Daemon {
-    private dal: DAL;
-    private running: boolean = false;
+        private running: boolean = false;
 
     constructor() {
-        this.dal = new DAL();
-    }
+            }
 
+    
     async tick() {
-        // Find tasks in 'created' state with no dependencies (indegree = 0)
-        // Since we don't have dependency resolution yet, we just take 'created' tasks
-        const db = (this.dal as any).db;
+        // Instead of writing to DB directly to claim, the daemon now poll REST API.
+        // Wait, the task says: "decouple pm_daemon from SQLite to use REST API polling"
+        // So pm_daemon shouldn't use dal.db anymore for fetching.
         
-        // Grab one task using CAS (Compare And Swap) equivalent
-        // First we lock by updating state from 'created' to 'dispatched'
-        const stmt = db.prepare(`
-            UPDATE nexus_tasks 
-            SET status = 'dispatched' 
-            WHERE id = (
-                SELECT id FROM nexus_tasks 
-                WHERE status = 'created' 
-                LIMIT 1
-            )
-            RETURNING *;
-        `);
-        
-        const task = stmt.get();
-        if (!task) {
-            return;
-        }
-
-        console.log(`Dispatched task: ${task.id}`);
-
         try {
-            // Get mock worker url. In a real scenario, this would come from a worker registry/allocation.
-            const workerUrl = 'http://localhost:8001/v1/webhook/artifacts'; // placeholder
-
-            // Generate payload using AdapterFactory
-            const adapter = AdapterFactory.get_adapter('openclaw');
-            const payload = adapter.adapt(task);
+            const pmApiUrl = process.env.PM_API_URL || 'http://localhost:8000/api/v1'; // Local PM API
+            const token = process.env.PM_API_TOKEN || 'valid-token';
             
-            // Send payload to worker
-            await axios.post(workerUrl, payload, { timeout: 3000 });
+            // 1. Claim task
+            const claimRes = await axios.post(`${pmApiUrl}/tasks/claim`, {}, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            
+            const task = claimRes.data.task;
+            if (!task) return;
+            
+            console.log(`Dispatched task via API: ${task.id}`);
+            
+            try {
+                // Get mock worker url
+                const workerUrl = 'http://localhost:8001/v1/webhook/artifacts'; 
 
+                // Generate payload
+                const adapter = AdapterFactory.get_adapter('openclaw');
+                const payload = adapter.adapt(task);
+                
+                // Send payload
+                await axios.post(workerUrl, payload, { timeout: 3000 });
+            } catch (error: any) {
+                console.error(`Failed to dispatch task ${task.id}:`, error.message);
+                // 2. Release task via API on failure
+                await axios.post(`${pmApiUrl}/tasks/${task.id}/release`, {}, {
+                    headers: { 'Authorization': `Bearer ${token}` }
+                });
+            }
         } catch (error: any) {
-            console.error(`Failed to dispatch task ${task.id}:`, error.message);
-            // Rollback on failure, increment retry count
-            db.prepare(`
-                UPDATE nexus_tasks
-                SET status = 'created', retry_count = retry_count + 1
-                WHERE id = ?
-            `).run(task.id);
+            if (error.response && error.response.status === 404) {
+                // No tasks available
+                return;
+            }
+            console.error('Error polling API:', error.message);
         }
     }
 
@@ -71,8 +67,7 @@ class Daemon {
     
     stop() {
         this.running = false;
-        this.dal.close();
-        console.log('Nexus Dispatch Daemon stopped.');
+                console.log('Nexus Dispatch Daemon stopped.');
     }
 }
 

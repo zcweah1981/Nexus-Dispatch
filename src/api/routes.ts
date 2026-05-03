@@ -18,6 +18,50 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token') {
         next();
     };
 
+    
+    router.post('/tasks/claim', authMiddleware, (req: Request, res: Response) => {
+        try {
+            const tx = (dal as any).db.transaction(() => {
+                const stmt = (dal as any).db.prepare(`
+                    UPDATE nexus_tasks 
+                    SET status = 'dispatched' 
+                    WHERE id = (
+                        SELECT id FROM nexus_tasks 
+                        WHERE status = 'created' 
+                        LIMIT 1
+                    )
+                    RETURNING *;
+                `);
+                return stmt.get();
+            });
+            const task = tx();
+            
+            if (!task) {
+                return res.status(404).json({ message: 'No tasks available' });
+            }
+            return res.status(200).json({ task });
+        } catch (error: any) {
+            return res.status(500).json({ error: 'Failed to claim task', details: error.message });
+        }
+    });
+
+    router.post('/tasks/:id/release', authMiddleware, (req: Request, res: Response) => {
+        const taskId = req.params.id as string;
+        try {
+            const tx = (dal as any).db.transaction(() => {
+                (dal as any).db.prepare(`
+                    UPDATE nexus_tasks
+                    SET status = 'created', retry_count = retry_count + 1
+                    WHERE id = ?
+                `).run(taskId);
+            });
+            tx();
+            return res.status(200).json({ message: 'Task released' });
+        } catch (error: any) {
+            return res.status(500).json({ error: 'Failed to release task', details: error.message });
+        }
+    });
+
     router.post('/tasks/:id/submit_proof', authMiddleware, (req: Request, res: Response) => {
         const taskId = req.params.id as string;
         const { run_id, artifact_type, payload } = req.body;
