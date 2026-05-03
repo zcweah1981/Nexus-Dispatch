@@ -1,0 +1,95 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Agent {
+  id             String   @id @default(uuid())
+  agent_id       String   @unique // e.g. 'long-coder-1'
+  endpoint       String   // Webhook url
+  lane           String   // DEV, DESIGN, OPS, CONTENT
+  dialect        String   // hermes, openclaw
+  soul_prompt    String   // PM customized prompt
+  tools_allowed  String   // JSON string of allowed tools
+  status         String   @default("offline") // online, offline
+  last_heartbeat DateTime?
+  created_at     DateTime @default(now())
+
+  runs           Run[]
+
+  @@map("nexus_agents")
+}
+
+model Project {
+  id             String   @id @default(uuid())
+  name           String   @unique
+  status         String   @default("active") // active, archived
+  pm_soul_prompt String?  // PM customized prompt
+  channel_config String?  // JSON: Telegram/Discord configs
+  created_at     DateTime @default(now())
+
+  tasks          Task[]
+
+  @@map("nexus_projects")
+}
+
+model Task {
+  id             String   @id @default(uuid())
+  project_id     String
+  title          String
+  objective      String
+  lane_required  String
+  status         String   @default("created") // created, dispatched, validating, completed, failed
+  payload_schema String?  // JSON Schema for payload validation
+  payload        String?  // JSON: Detailed context
+  proof_data     String?  // JSON: Artifacts from worker (Git SHA, Logs)
+  ext_meta       String?  // JSON: Extended metadata
+  max_retries    Int      @default(3)
+  retry_count    Int      @default(0)
+  created_at     DateTime @default(now())
+
+  project        Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  runs           Run[]
+
+  @@index([status, lane_required])
+  @@index([project_id])
+  @@map("nexus_tasks")
+}
+
+model Run {
+  run_id          String    @id @default(uuid())
+  task_id         String
+  agent_id        String
+  idempotency_key String    @unique
+  status          String    @default("running") // running, success, failed
+  error_stack     String?
+  started_at      DateTime  @default(now())
+  ended_at        DateTime?
+
+  task            Task      @relation(fields: [task_id], references: [id], onDelete: Cascade)
+  agent           Agent     @relation(fields: [agent_id], references: [id], onDelete: Cascade)
+  artifacts       Artifact[]
+
+  @@index([task_id, status])
+  @@map("nexus_runs")
+}
+
+model Artifact {
+  id            String   @id @default(uuid())
+  run_id        String
+  artifact_type String
+  payload       String   // JSON
+  created_at    DateTime @default(now())
+
+  run           Run      @relation(fields: [run_id], references: [run_id], onDelete: Cascade)
+
+  @@index([run_id])
+  @@map("nexus_artifacts")
+}
