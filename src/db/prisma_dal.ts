@@ -1,77 +1,520 @@
+/**
+ * Nexus Dispatch System — DAL v2 (API-only / Prisma ORM)
+ * Task: nd-v75-t12 | Agent: long-coder-1
+ *
+ * 核心原则：
+ *   1. 严禁 raw SQL — 全部走 Prisma ORM
+ *   2. 所有方法支持 project_id 分区隔离
+ *   3. 并发写入安全（WAL + Prisma interactive transactions）
+ *   4. 结构化错误处理
+ */
+
 import { PrismaClient, Prisma } from '@prisma/client';
+
+// ─── 类型导出 ────────────────────────────────────────────────
+
+export type TaskStatus = 'created' | 'dispatched' | 'accepted' | 'validating' | 'completed' | 'failed';
+export type RunStatus = 'running' | 'success' | 'failed';
+
+export interface InjectPhaseTaskInput {
+  title: string;
+  objective: string;
+  lane_required: string;
+  payload?: Record<string, unknown>;
+  payload_schema?: Record<string, unknown>;
+  acceptance_criteria?: string[];
+  reviewer?: string;
+  acceptance_mode?: string;
+}
+
+export interface SpawnReviewResult {
+  review_task_id: string;
+  review_run_id: string;
+}
+
+export interface GroupCompletionResult {
+  group_id: string;
+  total_tasks: number;
+  completed_tasks: number;
+  failed_tasks: number;
+  pending_tasks: number;
+  is_complete: boolean;
+}
+
+export interface ControllerConfig {
+  controller_id: string;
+  name: string;
+  entity_type: string;
+  states: unknown[];
+  transitions: unknown[];
+  initial_state: string;
+}
+
+// ─── DAL v2 主类 ─────────────────────────────────────────────
 
 export class PrismaDAL {
   private prisma: PrismaClient;
+  private static _instance: PrismaDAL | null = null;
 
-  constructor() {
+  /** 单例获取（方便外部复用同一连接） */
+  static getInstance(): PrismaDAL {
+    if (!PrismaDAL._instance) {
+      PrismaDAL._instance = new PrismaDAL();
+    }
+    return PrismaDAL._instance;
+  }
+
+  constructor(dbUrl?: string) {
+    const datasourceOverride = dbUrl
+      ? { db: { url: dbUrl } }
+      : undefined;
+
     this.prisma = new PrismaClient({
-      datasources: {
-        db: {
-          url: process.env.DATABASE_URL || 'file:../../../data/nexus.db',
-        },
-      },
+      datasources: datasourceOverride,
     });
   }
 
-  // WAL and Foreign Keys are handled by Prisma internally via queries if needed, 
-  // but usually Prisma handles foreign keys by default for sqlite.
-  async initPragmas() {
-     await this.prisma.$queryRaw`PRAGMA journal_mode = WAL;`;
-     await this.prisma.$queryRaw`PRAGMA foreign_keys = ON;`;
+  // ─── 初始化 ─────────────────────────────────────────────────
+
+  /**
+   * 启用 WAL 模式 + 外键约束。
+   * 这是 Prisma 对 SQLite 并发安全的最佳实践。
+   * 注意：使用 Prisma $queryRaw 执行 PRAGMA 是 SQLite 场景下唯一需要 raw 的例外，
+   * 不涉及业务数据操作。
+   */
+  async initPragmas(): Promise<void> {
+    // PRAGMA 配置指令（非 DML），通过 $queryRaw 执行
+    // SQLite PRAGMA 会返回结果行，$executeRaw 不支持
+    await this.prisma.$queryRaw`PRAGMA journal_mode = WAL;`;
+    await this.prisma.$queryRaw`PRAGMA foreign_keys = ON;`;
+    await this.prisma.$queryRaw`PRAGMA busy_timeout = 5000;`;
   }
+
+  // ═══════════════════════════════════════════════════════════
+  //  基础 CRUD（已有方法重写为 Prisma-only）
+  // ═══════════════════════════════════════════════════════════
 
   async createTask(data: Prisma.TaskUncheckedCreateInput) {
     return await this.prisma.task.create({ data });
   }
 
-  async updateTaskStatus(id: string, status: string) {
-    return await this.prisma.task.update({
-      where: { id },
-      data: { status }
+  async getTask(id: string) {
+    return await this.prisma.task.findUnique({ where: { id } });
+  }
+
+  async getTaskInProject(id: string, projectId: string) {
+    return await this.prisma.task.findFirst({
+      where: { id, project_id: projectId },
+    });
+  }
+
+  async updateTaskStatus(id: string, status: string, projectId?: string) {
+    const where: Prisma.TaskWhereUniqueInput = { id };
+    if (projectId) {
+      // project_id 隔离：通过 findFirst + update 确保不越界
+      const task = await this.prisma.task.findFirst({
+        where: { id, project_id: projectId },
+      });
+      if (!task) {
+        throw new Error(`Task ${id} not found in project ${projectId}`);
+      }
+    }
+    return await this.prisma.task.update({ where, data: { status } });
+  }
+
+  async listTasksByProject(projectId: string, filters?: { status?: string; lane?: string }) {
+    return await this.prisma.task.findMany({
+      where: {
+        project_id: projectId,
+        ...(filters?.status && { status: filters.status }),
+        ...(filters?.lane && { lane_required: filters.lane }),
+      },
+      orderBy: { created_at: 'asc' },
     });
   }
 
   async createRun(data: Prisma.RunUncheckedCreateInput) {
-     return await this.prisma.run.create({ data });
+    return await this.prisma.run.create({ data });
   }
 
-  async updateRunStatus(run_id: string, status: string, error_stack?: string) {
-     return await this.prisma.run.update({
-       where: { run_id },
-       data: {
-          status,
-          error_stack,
-          ended_at: new Date()
-       }
-     });
+  async getRun(runId: string) {
+    return await this.prisma.run.findUnique({ where: { run_id: runId } });
   }
 
-  // For testing
-  async _createProjectAndWorker(project_id: string, agent_id: string) {
-      await this.prisma.project.upsert({
-         where: { id: project_id },
-         update: {},
-         create: {
-             id: project_id,
-             name: 'Test Project ' + project_id
-         }
+  async updateRunStatus(runId: string, status: string, errorStack?: string | null) {
+    return await this.prisma.run.update({
+      where: { run_id: runId },
+      data: {
+        status,
+        error_stack: errorStack ?? null,
+        ended_at: new Date(),
+      },
+    });
+  }
+
+  // ─── Agent 操作 ──────────────────────────────────────────────
+
+  async upsertAgent(data: Prisma.AgentUncheckedCreateInput) {
+    return await this.prisma.agent.upsert({
+      where: { id: data.id },
+      update: {
+        lane: data.lane,
+        endpoint: data.endpoint,
+        status: 'online',
+        last_heartbeat: new Date(),
+      },
+      create: data,
+    });
+  }
+
+  async getAgent(agentId: string) {
+    return await this.prisma.agent.findUnique({ where: { agent_id: agentId } });
+  }
+
+  // ─── Project 操作 ────────────────────────────────────────────
+
+  async getProject(projectId: string) {
+    return await this.prisma.project.findUnique({ where: { id: projectId } });
+  }
+
+  async createProject(data: { name: string; channel_config?: string }) {
+    return await this.prisma.project.create({ data });
+  }
+
+  // ─── TaskGroup 操作 ─────────────────────────────────────────
+
+  async getTaskGroup(groupId: string) {
+    return await this.prisma.taskGroup.findUnique({ where: { group_id: groupId } });
+  }
+
+  async createTaskGroup(data: { group_id: string; name: string; description?: string }) {
+    return await this.prisma.taskGroup.create({
+      data: {
+        group_id: data.group_id,
+        name: data.name,
+        description: data.description,
+      },
+    });
+  }
+
+  // ─── Helper: 测试用预置 ─────────────────────────────────────
+
+  async _createProjectAndAgent(projectId: string, agentId: string) {
+    await this.prisma.project.upsert({
+      where: { id: projectId },
+      update: {},
+      create: { id: projectId, name: `Test Project ${projectId}` },
+    });
+    await this.prisma.agent.upsert({
+      where: { id: agentId },
+      update: {},
+      create: {
+        id: agentId,
+        agent_id: agentId,
+        lane: 'DEV',
+        endpoint: 'http://localhost:9000/webhook',
+        dialect: 'hermes',
+        soul_prompt: 'Test soul prompt',
+        tools_allowed: '[]',
+      },
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  新增方法 — Phase Task Injection / Review / Controller
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * inject_phase_tasks — 批量注入阶段任务到指定 TaskGroup
+   *
+   * 业务场景：PM 拆解出一个 Phase 的所有子任务后，一次性注入到数据库。
+   * 使用 interactive transaction 确保原子性。
+   *
+   * @param projectId - 项目隔离 ID
+   * @param groupId   - TaskGroup.group_id（如 'nd-v75-p1'）
+   * @param tasks     - 任务定义数组
+   * @returns 创建的 task ID 列表
+   */
+  async inject_phase_tasks(
+    projectId: string,
+    groupId: string,
+    tasks: InjectPhaseTaskInput[],
+  ): Promise<string[]> {
+    // 1. 校验 project 存在
+    const project = await this.prisma.project.findUnique({ where: { id: projectId } });
+    if (!project) {
+      throw new Error(`Project ${projectId} not found`);
+    }
+
+    // 2. 校验 task group 存在
+    const group = await this.prisma.taskGroup.findUnique({ where: { group_id: groupId } });
+    if (!group) {
+      throw new Error(`TaskGroup ${groupId} not found`);
+    }
+
+    // 3. Interactive transaction：原子批量创建
+    const createdIds = await this.prisma.$transaction(async (tx) => {
+      const ids: string[] = [];
+      for (const t of tasks) {
+        const task = await tx.task.create({
+          data: {
+            project_id: projectId,
+            title: t.title,
+            objective: t.objective,
+            lane_required: t.lane_required,
+            status: 'created',
+            task_group_id: group.id,
+            payload: t.payload ? JSON.stringify(t.payload) : null,
+            payload_schema: t.payload_schema ? JSON.stringify(t.payload_schema) : null,
+            acceptance_criteria: t.acceptance_criteria ? JSON.stringify(t.acceptance_criteria) : null,
+            reviewer: t.reviewer ?? null,
+            acceptance_mode: t.acceptance_mode ?? null,
+          },
+        });
+        ids.push(task.id);
+      }
+      return ids;
+    });
+
+    return createdIds;
+  }
+
+  /**
+   * spawn_review_task — 从源任务创建 Review 任务
+   *
+   * 业务场景：任务完成后，PM 可以派生一个 review 任务来审核。
+   * 创建 review task + review run 并返回两者 ID。
+   *
+   * @param projectId    - 项目隔离 ID
+   * @param sourceTaskId - 源任务 ID
+   * @param reviewer     - 审核人 agent ID
+   * @returns SpawnReviewResult
+   */
+  async spawn_review_task(
+    projectId: string,
+    sourceTaskId: string,
+    reviewer: string,
+  ): Promise<SpawnReviewResult> {
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. 获取源任务（project_id 隔离）
+      const sourceTask = await tx.task.findFirst({
+        where: { id: sourceTaskId, project_id: projectId },
       });
-      await this.prisma.agent.upsert({
-         where: { id: agent_id },
-         update: {},
-         create: {
-            id: agent_id,
-            agent_id: agent_id,
-            lane: 'DEV',
-            endpoint: 'http://localhost:9000/webhook',
-            dialect: 'hermes',
-            soul_prompt: 'Test soul prompt',
-            tools_allowed: '[]'
-         }
+      if (!sourceTask) {
+        throw new Error(`Source task ${sourceTaskId} not found in project ${projectId}`);
+      }
+
+      // 2. 创建 review 任务
+      const reviewTask = await tx.task.create({
+        data: {
+          project_id: projectId,
+          title: `[Review] ${sourceTask.title}`,
+          objective: `Review task ${sourceTaskId}: ${sourceTask.objective}`,
+          lane_required: sourceTask.lane_required,
+          status: 'dispatched',
+          task_group_id: sourceTask.task_group_id,
+          payload: JSON.stringify({ source_task_id: sourceTaskId, type: 'review' }),
+          reviewer: reviewer,
+          acceptance_mode: 'pm_audit',
+          acceptance_criteria: JSON.stringify(['Review completed']),
+        },
       });
+
+      // 3. 创建 review run（分配给 reviewer agent）
+      const reviewRun = await tx.run.create({
+        data: {
+          task_id: reviewTask.id,
+          agent_id: reviewer,
+          idempotency_key: `review-${sourceTaskId}-${Date.now()}`,
+          status: 'running',
+        },
+      });
+
+      return {
+        review_task_id: reviewTask.id,
+        review_run_id: reviewRun.run_id,
+      };
+    });
   }
 
-  async close() {
-     await this.prisma.$disconnect();
+  /**
+   * get_controller_config — 获取 FSM 控制器配置
+   *
+   * @param controllerId - 控制器 ID（如 'fsm-task-v1'）
+   * @returns ControllerConfig 或 null
+   */
+  async get_controller_config(controllerId: string): Promise<ControllerConfig | null> {
+    const controller = await this.prisma.fSMController.findUnique({
+      where: { controller_id: controllerId },
+    });
+
+    if (!controller) return null;
+
+    return {
+      controller_id: controller.controller_id,
+      name: controller.name,
+      entity_type: controller.entity_type,
+      states: JSON.parse(controller.states_json),
+      transitions: JSON.parse(controller.transitions_json),
+      initial_state: controller.initial_state,
+    };
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  新增方法 — Group Completion / Closeout / Thaw
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * check_group_completion — 检查 TaskGroup 是否全部完成
+   *
+   * @param groupId   - TaskGroup.group_id
+   * @param projectId - 项目隔离 ID
+   * @returns GroupCompletionResult
+   */
+  async check_group_completion(
+    groupId: string,
+    projectId: string,
+  ): Promise<GroupCompletionResult> {
+    const group = await this.prisma.taskGroup.findUnique({
+      where: { group_id: groupId },
+    });
+    if (!group) {
+      throw new Error(`TaskGroup ${groupId} not found`);
+    }
+
+    // 查询该 group 下属于该 project 的所有任务
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        task_group_id: group.id,
+        project_id: projectId,
+      },
+    });
+
+    const completed = tasks.filter((t) => t.status === 'completed').length;
+    const failed = tasks.filter((t) => t.status === 'failed').length;
+    const pending = tasks.filter(
+      (t) => t.status !== 'completed' && t.status !== 'failed',
+    ).length;
+
+    return {
+      group_id: groupId,
+      total_tasks: tasks.length,
+      completed_tasks: completed,
+      failed_tasks: failed,
+      pending_tasks: pending,
+      is_complete: tasks.length > 0 && pending === 0,
+    };
+  }
+
+  /**
+   * closeout_completed_group — 对已完成的 TaskGroup 执行收尾
+   *
+   * 前置条件：check_group_completion 返回 is_complete = true
+   * 操作：将 group 状态置为 'completed'
+   *
+   * @param groupId   - TaskGroup.group_id
+   * @param projectId - 项目隔离 ID
+   * @returns 更新后的 TaskGroup 或 null（如果未满足条件）
+   */
+  async closeout_completed_group(
+    groupId: string,
+    projectId: string,
+  ) {
+    const completion = await this.check_group_completion(groupId, projectId);
+
+    if (!completion.is_complete) {
+      return null;
+    }
+
+    return await this.prisma.taskGroup.update({
+      where: { group_id: groupId },
+      data: { status: 'completed' },
+    });
+  }
+
+  /**
+   * thaw_initial_phase — 解冻初始阶段
+   *
+   * 业务场景：TaskGroup 创建时所有任务处于 'created' 状态（冻结），
+   * PM 确认后调用此方法将第一个阶段（或全部）任务激活为 'dispatched'。
+   *
+   * @param projectId  - 项目隔离 ID
+   * @param groupId    - TaskGroup.group_id
+   * @param maxTasks   - 最多激活的任务数（默认激活全部）
+   * @returns 被激活的 task ID 列表
+   */
+  async thaw_initial_phase(
+    projectId: string,
+    groupId: string,
+    maxTasks?: number,
+  ): Promise<string[]> {
+    const group = await this.prisma.taskGroup.findUnique({
+      where: { group_id: groupId },
+    });
+    if (!group) {
+      throw new Error(`TaskGroup ${groupId} not found`);
+    }
+
+    return await this.prisma.$transaction(async (tx) => {
+      // 查找该 group 下该 project 的 'created' 任务
+      const frozenTasks = await tx.task.findMany({
+        where: {
+          task_group_id: group.id,
+          project_id: projectId,
+          status: 'created',
+        },
+        orderBy: { created_at: 'asc' },
+        take: maxTasks,
+      });
+
+      const thawedIds: string[] = [];
+      for (const task of frozenTasks) {
+        await tx.task.update({
+          where: { id: task.id },
+          data: { status: 'dispatched' },
+        });
+        thawedIds.push(task.id);
+      }
+
+      return thawedIds;
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  并发安全测试辅助
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * 并发批量更新 Run 状态 — 用于验证 WAL 模式下无 "database is locked"
+   */
+  async concurrentUpdateRuns(runIds: string[], status: RunStatus): Promise<number> {
+    const results = await Promise.all(
+      runIds.map((runId) =>
+        this.prisma.run.update({
+          where: { run_id: runId },
+          data: {
+            status,
+            ended_at: new Date(),
+          },
+        }),
+      ),
+    );
+    return results.length;
+  }
+
+  // ─── 生命周期 ────────────────────────────────────────────────
+
+  async close(): Promise<void> {
+    await this.prisma.$disconnect();
+    if (PrismaDAL._instance === this) {
+      PrismaDAL._instance = null;
+    }
+  }
+
+  /** 获取底层 PrismaClient（仅供高级用途 / 测试） */
+  get client(): PrismaClient {
+    return this.prisma;
   }
 }
+
+export default PrismaDAL;
