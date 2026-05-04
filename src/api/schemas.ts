@@ -86,6 +86,35 @@ export const webhookArtifactsSchema = {
   additionalProperties: false,
 } as const;
 
+// ─── PUT /api/v1/controllers/:id/config ─────────────────────────────
+export const controllerConfigUpdateSchema = {
+  $id: 'controllerConfigUpdate',
+  type: 'object',
+  properties: {
+    name:          { type: 'string', minLength: 1, maxLength: 256 },
+    states:        { type: 'array', items: {} },
+    transitions:   { type: 'array', items: {} },
+    initial_state: { type: 'string', minLength: 1 },
+  },
+  additionalProperties: false,
+  minProperties: 1,
+} as const;
+
+// ─── POST /api/v1/blueprints ────────────────────────────────────────
+export const blueprintCreateSchema = {
+  $id: 'blueprintCreate',
+  type: 'object',
+  required: ['project_id', 'name', 'blueprint_id', 'schema_json'],
+  properties: {
+    project_id:    { type: 'string', minLength: 1 },
+    name:          { type: 'string', minLength: 1, maxLength: 256 },
+    blueprint_id:  { type: 'string', minLength: 1, maxLength: 128 },
+    version:       { type: 'string', maxLength: 32 },
+    schema_json:   { type: 'object' },
+  },
+  additionalProperties: false,
+} as const;
+
 // ─── Registry: map route keys to schemas ────────────────────────────
 export const schemas: Record<string, { key: string; schema: object }> = {
   'POST:/api/v1/projects/init':         { key: 'projectInit',      schema: projectInitSchema },

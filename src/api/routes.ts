@@ -7,6 +7,7 @@
 
 import { Router, Request, Response } from 'express';
 import DAL from '../db/dal';
+import { PrismaDAL } from '../db/prisma_dal';
 import { v4 as uuidv4 } from 'uuid';
 import Ajv from 'ajv';
 import { stateEmitter } from './server';
@@ -15,11 +16,14 @@ import {
   taskClaimSchema,
   taskReleaseSchema,
   submitProofSchema,
+  controllerConfigUpdateSchema,
+  blueprintCreateSchema,
+  projectInitSchema,
 } from './schemas';
 
 const ajv = new Ajv();
 
-export function createApiRouter(dal: DAL, authToken: string = 'valid-token') {
+export function createApiRouter(dal: DAL, authToken: string = 'valid-token', prismaDal?: PrismaDAL) {
   const router = Router();
 
   // ─── POST /api/v1/tasks/claim ─────────────────────────────────────
@@ -139,6 +143,237 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token') {
       return res.status(201).json({ message: 'Proof submitted successfully, task is now validating' });
     } catch (err: any) {
       return sendError(res, 500, 'Database transaction failed', ErrorCodes.INTERNAL_ERROR, { message: err.message });
+    }
+  });
+
+  // ─── GET /api/v1/controllers — 列出所有 FSM 控制器 ────────────────
+  router.get('/controllers', async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    try {
+      const entityType = typeof req.query.entity_type === 'string' ? req.query.entity_type : undefined;
+      const controllers = await prismaDal.list_controllers(entityType);
+      return res.status(200).json({ controllers });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to list controllers', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── PUT /api/v1/controllers/:id/config — 热更新 FSM 配置 ────────
+  router.put('/controllers/:id/config', validateBody('controllerConfigUpdate', controllerConfigUpdateSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const controllerId = req.params.id as string;
+    try {
+      const updated = await prismaDal.update_controller_config(controllerId, req.body);
+      if (!updated) {
+        return sendError(res, 404, `Controller '${controllerId}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      // 广播 config_updated 事件，Daemon 下一个 tick 即时生效
+      stateEmitter.emit('state_change', {
+        type: 'controller_config_updated',
+        data: { controller_id: controllerId, updated_config: updated },
+      });
+
+      return res.status(200).json({ controller: updated });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to update controller config', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── GET /api/v1/events/stream — SSE 实时推送 + 心跳 ──────────────
+  router.get('/events/stream', (req: Request, res: Response) => {
+    res.setHeader('Content-Type', 'text/event-stream');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no'); // 防止 nginx 缓冲
+
+    // 初始连接事件
+    res.write(`data: ${JSON.stringify({ type: 'connected', message: 'SSE connection established', timestamp: Date.now() })}\n\n`);
+
+    // 心跳 keep-alive（每 15 秒）
+    const heartbeat = setInterval(() => {
+      try {
+        res.write(`:heartbeat\n\n`);  // SSE comment as heartbeat
+        res.write(`data: ${JSON.stringify({ type: 'ping', timestamp: Date.now() })}\n\n`);
+      } catch (e) {
+        clearInterval(heartbeat);
+      }
+    }, 15000);
+
+    // 监听 stateEmitter 事件
+    const onStateChange = (event: any) => {
+      try {
+        res.write(`event: state_change\ndata: ${JSON.stringify(event)}\n\n`);
+      } catch (e) {
+        // 连接已关闭
+      }
+    };
+
+    stateEmitter.on('state_change', onStateChange);
+
+    req.on('close', () => {
+      clearInterval(heartbeat);
+      stateEmitter.off('state_change', onStateChange);
+    });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  //  T2.4: 项目蓝图 API（4个接口）
+  // ═══════════════════════════════════════════════════════════════
+
+  // ─── POST /api/v1/projects/init — 项目初始化（骨架+建档） ───────
+  router.post('/projects/init', validateBody('projectInit', projectInitSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const { name, description } = req.body;
+
+    try {
+      // Check duplicate name
+      const existing = await prismaDal.getProjectByName(name);
+      if (existing) {
+        return sendError(res, 409, `Project with name '${name}' already exists`, ErrorCodes.BAD_REQUEST);
+      }
+
+      // Create project in DB
+      const project = await prismaDal.createProject({
+        name,
+        ...(description && { channel_config: JSON.stringify({ description }) }),
+      });
+
+      return res.status(201).json({
+        id: project.id,
+        name: project.name,
+        status: project.status,
+        description: description || null,
+        created_at: project.created_at,
+      });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to init project', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── GET /api/v1/projects/:id — 查询项目状态 ─────────────────────
+  router.get('/projects/:id', async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const projectId = req.params.id as string;
+
+    try {
+      const project = await prismaDal.getProject(projectId);
+      if (!project) {
+        return sendError(res, 404, `Project '${projectId}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      // Extract description from channel_config if present
+      let description: string | null = null;
+      if (project.channel_config) {
+        try {
+          const config = JSON.parse(project.channel_config);
+          description = config.description || null;
+        } catch {}
+      }
+
+      return res.status(200).json({
+        id: project.id,
+        name: project.name,
+        status: project.status,
+        description,
+        pm_soul_prompt: project.pm_soul_prompt,
+        created_at: project.created_at,
+      });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to get project', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── POST /api/v1/blueprints — 存入大盘规划 ─────────────────────
+  router.post('/blueprints', validateBody('blueprintCreate', blueprintCreateSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const { project_id, name, blueprint_id, version, schema_json } = req.body;
+
+    try {
+      // Verify project exists
+      const project = await prismaDal.getProject(project_id);
+      if (!project) {
+        return sendError(res, 404, `Project '${project_id}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      // Create blueprint via PrismaDAL
+      const blueprint = await prismaDal.createBlueprint({
+        project_id,
+        name,
+        blueprint_id,
+        version: version || '1.0',
+        schema_json: JSON.stringify(schema_json),
+      });
+
+      return res.status(201).json({
+        id: blueprint.id,
+        blueprint_id: blueprint.blueprint_id,
+        name: blueprint.name,
+        project_id: blueprint.project_id,
+        version: blueprint.version,
+        status: blueprint.status,
+        created_at: blueprint.created_at,
+      });
+    } catch (error: any) {
+      // Prisma unique constraint violation → duplicate blueprint_id
+      if (error.code === 'P2002') {
+        return sendError(res, 409, `Blueprint with id '${blueprint_id}' already exists`, ErrorCodes.BAD_REQUEST);
+      }
+      return sendError(res, 500, 'Failed to create blueprint', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── GET /api/v1/blueprints/:projectId/next_phase — 获取下一 Phase ──
+  router.get('/blueprints/:projectId/next_phase', async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const projectId = req.params.projectId as string;
+
+    try {
+      // Verify project exists
+      const project = await prismaDal.getProject(projectId);
+      if (!project) {
+        return sendError(res, 404, `Project '${projectId}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      // Get all blueprints for this project (most recent first)
+      const blueprints = await prismaDal.getBlueprintsByProject(projectId);
+      if (!blueprints || blueprints.length === 0) {
+        return sendError(res, 404, `No blueprints found for project '${projectId}'`, ErrorCodes.NOT_FOUND);
+      }
+
+      // Use the latest blueprint (first one, ordered by updated_at desc)
+      const blueprint = blueprints[0];
+      const schema = JSON.parse(blueprint.schema_json);
+      const phases = schema.phases || [];
+
+      // Find the first phase that is NOT 'completed'
+      const nextIndex = phases.findIndex((p: any) => p.status !== 'completed');
+
+      if (nextIndex === -1) {
+        // All phases completed
+        return res.status(204).send();
+      }
+
+      return res.status(200).json({
+        phase: phases[nextIndex],
+        phase_index: nextIndex,
+        total_phases: phases.length,
+        blueprint_id: blueprint.blueprint_id,
+      });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to get next phase', ErrorCodes.INTERNAL_ERROR, { message: error.message });
     }
   });
 

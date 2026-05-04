@@ -181,6 +181,29 @@ export class PrismaDAL {
     return await this.prisma.project.create({ data });
   }
 
+  async getProjectByName(name: string) {
+    return await this.prisma.project.findUnique({ where: { name } });
+  }
+
+  // ─── Blueprint 操作 ──────────────────────────────────────────
+
+  async createBlueprint(data: {
+    project_id: string;
+    name: string;
+    blueprint_id: string;
+    version: string;
+    schema_json: string;
+  }) {
+    return await this.prisma.projectBlueprint.create({ data });
+  }
+
+  async getBlueprintsByProject(projectId: string) {
+    return await this.prisma.projectBlueprint.findMany({
+      where: { project_id: projectId },
+      orderBy: { updated_at: 'desc' },
+    });
+  }
+
   // ─── TaskGroup 操作 ─────────────────────────────────────────
 
   async getTaskGroup(groupId: string) {
@@ -357,6 +380,64 @@ export class PrismaDAL {
       states: JSON.parse(controller.states_json),
       transitions: JSON.parse(controller.transitions_json),
       initial_state: controller.initial_state,
+    };
+  }
+
+  /**
+   * list_controllers — 列出所有 FSM 控制器
+   *
+   * @param entityType - 可选：按 entity_type 过滤
+   * @returns ControllerConfig[]
+   */
+  async list_controllers(entityType?: string): Promise<ControllerConfig[]> {
+    const where = entityType ? { entity_type: entityType } : {};
+    const controllers = await this.prisma.fSMController.findMany({ where });
+
+    return controllers.map((c) => ({
+      controller_id: c.controller_id,
+      name: c.name,
+      entity_type: c.entity_type,
+      states: JSON.parse(c.states_json),
+      transitions: JSON.parse(c.transitions_json),
+      initial_state: c.initial_state,
+    }));
+  }
+
+  /**
+   * update_controller_config — 热更新 FSM 控制器配置
+   * 用于审核设置面板实时调整 states / transitions
+   *
+   * @param controllerId - 控制器 ID（如 'fsm-task-v1'）
+   * @param patch - 需要更新的字段（局部更新）
+   * @returns 更新后的 ControllerConfig 或 null（如果不存在）
+   */
+  async update_controller_config(
+    controllerId: string,
+    patch: Partial<Pick<ControllerConfig, 'name' | 'states' | 'transitions' | 'initial_state'>>,
+  ): Promise<ControllerConfig | null> {
+    const existing = await this.prisma.fSMController.findUnique({
+      where: { controller_id: controllerId },
+    });
+    if (!existing) return null;
+
+    const data: Record<string, string> = {};
+    if (patch.name !== undefined) data.name = patch.name;
+    if (patch.states !== undefined) data.states_json = JSON.stringify(patch.states);
+    if (patch.transitions !== undefined) data.transitions_json = JSON.stringify(patch.transitions);
+    if (patch.initial_state !== undefined) data.initial_state = patch.initial_state;
+
+    const updated = await this.prisma.fSMController.update({
+      where: { controller_id: controllerId },
+      data,
+    });
+
+    return {
+      controller_id: updated.controller_id,
+      name: updated.name,
+      entity_type: updated.entity_type,
+      states: JSON.parse(updated.states_json),
+      transitions: JSON.parse(updated.transitions_json),
+      initial_state: updated.initial_state,
     };
   }
 

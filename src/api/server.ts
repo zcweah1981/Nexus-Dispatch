@@ -13,6 +13,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { createApiRouter } from './routes';
+import { PrismaDAL } from '../db/prisma_dal';
 import {
   bearerAuth,
   validateBody,
@@ -33,7 +34,7 @@ const ajv = new Ajv();
 // Event emitter to broadcast state changes
 export const stateEmitter = new EventEmitter();
 
-export function createServer(dal: DAL, authToken: string = 'valid-token') {
+export function createServer(dal: DAL, authToken: string = 'valid-token', prismaDal?: PrismaDAL) {
   const app = express();
 
   // Enable CORS for frontend connection
@@ -44,7 +45,7 @@ export function createServer(dal: DAL, authToken: string = 'valid-token') {
   app.use('/api/v1', bearerAuth(authToken));
 
   // ─── API Router (all /api/v1/* business routes) ───────────────────
-  app.use('/api/v1', createApiRouter(dal, authToken));
+  app.use('/api/v1', createApiRouter(dal, authToken, prismaDal));
 
   // ─── Legacy /v1/* routes (kept for backward compat, also auth-protected) ─
   // These use per-route auth + schema validation
