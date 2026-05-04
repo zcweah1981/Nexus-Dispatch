@@ -8,6 +8,7 @@
 import { Router, Request, Response } from 'express';
 import DAL from '../db/dal';
 import { PrismaDAL } from '../db/prisma_dal';
+import { ReviewEngine } from '../engine/review_engine';
 import { v4 as uuidv4 } from 'uuid';
 import Ajv from 'ajv';
 import { stateEmitter } from './server';
@@ -20,12 +21,241 @@ import {
   blueprintCreateSchema,
   projectInitSchema,
   agentRegisterSchema,
+  taskCreateSchema,
+  taskStatusUpdateSchema,
+  taskBatchSchema,
+  taskAcceptSchema,
+  taskRejectSchema,
 } from './schemas';
 
 const ajv = new Ajv();
 
 export function createApiRouter(dal: DAL, authToken: string = 'valid-token', prismaDal?: PrismaDAL) {
   const router = Router();
+
+  // ═══════════════════════════════════════════════════════════════
+  //  T2.1: 任务管理 API（5个接口）
+  // ═══════════════════════════════════════════════════════════════
+
+  // ─── POST /api/v1/tasks — 创建任务 ─────────────────────────────────
+  router.post('/tasks', validateBody('taskCreate', taskCreateSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const { project_id, title, objective, lane_required, task_group_id,
+            payload, payload_schema, acceptance_criteria, reviewer,
+            acceptance_mode, max_retries } = req.body;
+
+    try {
+      // Verify project exists
+      const project = await prismaDal.getProject(project_id);
+      if (!project) {
+        return sendError(res, 404, `Project '${project_id}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      // If task_group_id provided (group_id string like 'test-p1'), verify it exists and resolve to internal UUID
+      let resolvedTaskGroupId: string | undefined;
+      if (task_group_id) {
+        const group = await prismaDal.getTaskGroup(task_group_id);
+        if (!group) {
+          return sendError(res, 404, `TaskGroup '${task_group_id}' not found`, ErrorCodes.NOT_FOUND);
+        }
+        resolvedTaskGroupId = group.id;
+      }
+
+      const task = await prismaDal.createTask({
+        project_id,
+        title,
+        objective,
+        lane_required,
+        status: 'created',
+        ...(resolvedTaskGroupId && { task_group_id: resolvedTaskGroupId }),
+        ...(payload && { payload: JSON.stringify(payload) }),
+        ...(payload_schema && { payload_schema: JSON.stringify(payload_schema) }),
+        ...(acceptance_criteria && { acceptance_criteria: JSON.stringify(acceptance_criteria) }),
+        ...(reviewer && { reviewer }),
+        ...(acceptance_mode && { acceptance_mode }),
+        ...(max_retries !== undefined && { max_retries }),
+      });
+
+      stateEmitter.emit('state_change', {
+        type: 'task_created',
+        data: { task_id: task.id, project_id, title, status: 'created' },
+      });
+
+      return res.status(201).json({ task });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to create task', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── GET /api/v1/tasks/pending — 获取可派发任务（含 DAG 依赖检查）──
+  router.get('/tasks/pending', async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const projectId = req.query.project_id as string | undefined;
+    const lane = req.query.lane as string | undefined;
+
+    try {
+      // 1. Find all 'created' tasks (optionally filtered by project and lane)
+      const whereClause: any = { status: 'created' };
+      if (projectId) whereClause.project_id = projectId;
+      if (lane) whereClause.lane_required = lane;
+
+      const createdTasks = await prismaDal.client.task.findMany({
+        where: whereClause,
+        orderBy: { created_at: 'asc' },
+        include: {
+          outgoing_deps: {
+            select: { depends_on_id: true },
+          },
+        },
+      });
+
+      // 2. DAG dependency check: only return tasks whose ALL dependencies are completed
+      // outgoing_deps = TaskDependency rows where task_id = this task (this task depends on others)
+      const dispatchable = [];
+      for (const task of createdTasks) {
+        if (!task.outgoing_deps || task.outgoing_deps.length === 0) {
+          dispatchable.push(task);
+          continue;
+        }
+
+        // Check each dependency — all must be 'completed'
+        const depIds = task.outgoing_deps.map((d: any) => d.depends_on_id);
+        const depTasks = await prismaDal.client.task.findMany({
+          where: { id: { in: depIds } },
+          select: { id: true, status: true },
+        });
+
+        const allCompleted = depTasks.every((d: any) => d.status === 'completed');
+        if (allCompleted) {
+          dispatchable.push(task);
+        }
+      }
+
+      // Strip internal relation info from response
+      const cleaned = dispatchable.map((t: any) => {
+        const { incoming_deps, outgoing_deps, project, taskGroup, runs, ...rest } = t;
+        return rest;
+      });
+
+      return res.status(200).json({ tasks: cleaned, total: cleaned.length });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to fetch pending tasks', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── GET /api/v1/tasks/:id — 单任务详情 ─────────────────────────────
+  router.get('/tasks/:id', async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const taskId = req.params.id as string;
+    const projectId = req.query.project_id as string | undefined;
+
+    try {
+      const task = projectId
+        ? await prismaDal.getTaskInProject(taskId, projectId)
+        : await prismaDal.getTask(taskId);
+
+      if (!task) {
+        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      return res.status(200).json({ task });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to get task', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── PATCH /api/v1/tasks/:id/status — 状态更新 ──────────────────────
+  router.patch('/tasks/:id/status', validateBody('taskStatusUpdate', taskStatusUpdateSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const taskId = req.params.id as string;
+    const { status, proof_data, ext_meta } = req.body;
+
+    try {
+      const existing = await prismaDal.getTask(taskId);
+      if (!existing) {
+        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      // Build update data
+      const updateData: any = { status };
+      if (proof_data !== undefined) updateData.proof_data = proof_data;
+      if (ext_meta !== undefined) updateData.ext_meta = ext_meta;
+
+      const updated = await prismaDal.client.task.update({
+        where: { id: taskId },
+        data: updateData,
+      });
+
+      stateEmitter.emit('state_change', {
+        type: 'task_status_updated',
+        data: { task_id: taskId, old_status: existing.status, new_status: status },
+      });
+
+      return res.status(200).json({ task: updated });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to update task status', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── POST /api/v1/tasks/batch — 批量注入（冷冻库解冻用） ────────────
+  router.post('/tasks/batch', validateBody('taskBatch', taskBatchSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const { project_id, group_id, tasks } = req.body;
+
+    try {
+      // Verify project exists
+      const project = await prismaDal.getProject(project_id);
+      if (!project) {
+        return sendError(res, 404, `Project '${project_id}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      // Verify group exists
+      const group = await prismaDal.getTaskGroup(group_id);
+      if (!group) {
+        return sendError(res, 404, `TaskGroup '${group_id}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      // Use DAL's inject_phase_tasks for atomic batch creation
+      const injectedIds = await prismaDal.inject_phase_tasks(
+        project_id,
+        group_id,
+        tasks.map((t: any) => ({
+          title: t.title,
+          objective: t.objective,
+          lane_required: t.lane_required,
+          payload: t.payload,
+          payload_schema: t.payload_schema,
+          acceptance_criteria: t.acceptance_criteria,
+          reviewer: t.reviewer,
+          acceptance_mode: t.acceptance_mode,
+        })),
+      );
+
+      stateEmitter.emit('state_change', {
+        type: 'tasks_batch_injected',
+        data: { project_id, group_id, count: injectedIds.length, task_ids: injectedIds },
+      });
+
+      return res.status(201).json({
+        injected: injectedIds.length,
+        task_ids: injectedIds,
+        project_id,
+        group_id,
+      });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to batch inject tasks', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
 
   // ─── POST /api/v1/tasks/claim ─────────────────────────────────────
   router.post('/tasks/claim', validateBody('taskClaim', taskClaimSchema), (req: Request, res: Response) => {
@@ -442,6 +672,191 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
       });
     } catch (error: any) {
       return sendError(res, 500, 'Failed to get next phase', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  //  T3.3: 动态审核派单引擎（3个接口）
+  // ═══════════════════════════════════════════════════════════════
+
+  // ─── POST /api/v1/tasks/:id/submit_proof_v2 — PrismaDAL 驱动的 proof 提交 ──
+  router.post('/tasks/:id/submit_proof_v2', validateBody('submitProof', submitProofSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const taskId = req.params.id as string;
+    const { run_id, artifact_type, payload } = req.body;
+
+    try {
+      // 1. Validate task and run
+      const task = await prismaDal.getTask(taskId);
+      if (!task) {
+        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      const run = await (prismaDal as any).prisma.run.findUnique({ where: { run_id } });
+      if (!run) {
+        return sendError(res, 404, `Run '${run_id}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      if (run.task_id !== taskId) {
+        return sendError(res, 400, 'Run does not belong to this task', ErrorCodes.BAD_REQUEST);
+      }
+
+      if (run.status !== 'running') {
+        return sendError(res, 400, 'Run is not in running state', ErrorCodes.BAD_REQUEST, { run_status: run.status });
+      }
+
+      if (task.status !== 'dispatched' && task.status !== 'created') {
+        return sendError(res, 400, `Cannot submit proof for task in ${task.status} state`, ErrorCodes.BAD_REQUEST);
+      }
+
+      // 2. Schema validation (if defined)
+      if (task.payload_schema) {
+        try {
+          const schema = JSON.parse(task.payload_schema);
+          if (schema && Object.keys(schema).length > 0) {
+            const validate = ajv.compile(schema);
+            const isValid = validate(payload) as boolean;
+            if (!isValid) {
+              const errors = validate.errors?.map(e => ({
+                field: (e.instancePath || '/').replace(/^\//, '') || 'root',
+                message: e.message || 'Validation failed',
+                params: e.params,
+              }));
+              return sendError(res, 422, 'Payload validation failed', ErrorCodes.VALIDATION_ERROR, errors);
+            }
+          }
+        } catch { /* invalid schema, skip validation */ }
+      }
+
+      // 3. Update run → success, create artifact
+      await (prismaDal as any).prisma.run.update({
+        where: { run_id },
+        data: { status: 'success', ended_at: new Date() },
+      });
+
+      await (prismaDal as any).prisma.artifact.create({
+        data: {
+          run_id,
+          artifact_type,
+          payload: JSON.stringify(payload),
+        },
+      });
+
+      // 4. Transition task to 'validating'
+      await prismaDal.updateTaskStatus(taskId, 'validating');
+
+      stateEmitter.emit('state_change', {
+        type: 'run_status_updated',
+        data: { run_id, status: 'success' },
+      });
+      stateEmitter.emit('state_change', {
+        type: 'task_status_updated',
+        data: { task_id: taskId, status: 'validating' },
+      });
+
+      // 5. evaluate_task: acceptance_mode routing
+      const engine = new ReviewEngine(prismaDal);
+      const evalResult = await engine.evaluate_task(taskId, task.project_id);
+
+      stateEmitter.emit('state_change', {
+        type: 'task_status_updated',
+        data: { task_id: taskId, old_status: 'validating', new_status: evalResult.new_status },
+      });
+
+      if (evalResult.review_spawned) {
+        stateEmitter.emit('state_change', {
+          type: 'review_spawned',
+          data: {
+            task_id: taskId,
+            review_task_id: evalResult.review_task_id,
+            review_run_id: evalResult.review_run_id,
+          },
+        });
+      }
+
+      return res.status(201).json({
+        message: 'Proof submitted successfully',
+        review_spawned: evalResult.review_spawned,
+        ...(evalResult.review_task_id && { review_task_id: evalResult.review_task_id }),
+        ...(evalResult.review_run_id && { review_run_id: evalResult.review_run_id }),
+        new_status: evalResult.new_status,
+      });
+    } catch (error: any) {
+      return sendError(res, 500, 'Submit proof failed', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── POST /api/v1/tasks/:id/accept — 审核通过 ─────────────────────
+  router.post('/tasks/:id/accept', validateBody('taskAccept', taskAcceptSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const taskId = req.params.id as string;
+    const { reviewer_id, note } = req.body;
+
+    try {
+      const task = await prismaDal.getTask(taskId);
+      if (!task) {
+        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      if (task.status !== 'review_spawned' && task.status !== 'validating') {
+        return sendError(res, 400, `Cannot accept task in '${task.status}' state, expected 'review_spawned' or 'validating'`, ErrorCodes.BAD_REQUEST);
+      }
+
+      const engine = new ReviewEngine(prismaDal);
+      const result = await engine.accept_review(taskId, reviewer_id || 'unknown', note);
+
+      stateEmitter.emit('state_change', {
+        type: 'task_accepted',
+        data: { task_id: taskId, reviewer_id: reviewer_id || 'unknown' },
+      });
+
+      const updatedTask = await prismaDal.getTask(taskId);
+      return res.status(200).json({ task: updatedTask });
+    } catch (error: any) {
+      if (error.message.startsWith('INVALID_STATE:')) {
+        return sendError(res, 400, error.message.replace('INVALID_STATE: ', ''), ErrorCodes.BAD_REQUEST);
+      }
+      return sendError(res, 500, 'Accept failed', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── POST /api/v1/tasks/:id/reject — 审核驳回 ─────────────────────
+  router.post('/tasks/:id/reject', validateBody('taskReject', taskRejectSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const taskId = req.params.id as string;
+    const { reviewer_id, reason } = req.body;
+
+    try {
+      const task = await prismaDal.getTask(taskId);
+      if (!task) {
+        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      if (task.status !== 'review_spawned' && task.status !== 'validating') {
+        return sendError(res, 400, `Cannot reject task in '${task.status}' state, expected 'review_spawned' or 'validating'`, ErrorCodes.BAD_REQUEST);
+      }
+
+      const engine = new ReviewEngine(prismaDal);
+      const result = await engine.reject_review(taskId, reviewer_id || 'unknown', reason);
+
+      stateEmitter.emit('state_change', {
+        type: 'task_rejected',
+        data: { task_id: taskId, reason, retry_count: result.retry_count },
+      });
+
+      const updatedTask = await prismaDal.getTask(taskId);
+      return res.status(200).json({ task: updatedTask });
+    } catch (error: any) {
+      if (error.message.startsWith('INVALID_STATE:')) {
+        return sendError(res, 400, error.message.replace('INVALID_STATE: ', ''), ErrorCodes.BAD_REQUEST);
+      }
+      return sendError(res, 500, 'Reject failed', ErrorCodes.INTERNAL_ERROR, { message: error.message });
     }
   });
 

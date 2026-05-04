@@ -122,6 +122,26 @@ export class PrismaDAL {
     return await this.prisma.task.update({ where, data: { status } });
   }
 
+  /**
+   * updateTaskWithProof — 原子更新任务状态 + proof_data + retry_count
+   * 用于 accept/reject 端点一次性写入审核结果
+   */
+  async updateTaskWithProof(
+    id: string,
+    status: string,
+    proofData: Record<string, unknown>,
+    extraData?: { retry_count?: number },
+  ) {
+    return await this.prisma.task.update({
+      where: { id },
+      data: {
+        status,
+        proof_data: JSON.stringify(proofData),
+        ...(extraData?.retry_count !== undefined && { retry_count: extraData.retry_count }),
+      },
+    });
+  }
+
   async listTasksByProject(projectId: string, filters?: { status?: string; lane?: string }) {
     return await this.prisma.task.findMany({
       where: {
@@ -463,6 +483,7 @@ export class PrismaDAL {
       states: JSON.parse(controller.states_json),
       transitions: JSON.parse(controller.transitions_json),
       initial_state: controller.initial_state,
+      config_json: controller.config_json ? JSON.parse(controller.config_json) : {},
     };
   }
 
@@ -483,12 +504,13 @@ export class PrismaDAL {
       states: JSON.parse(c.states_json),
       transitions: JSON.parse(c.transitions_json),
       initial_state: c.initial_state,
+      config_json: c.config_json ? JSON.parse(c.config_json) : {},
     }));
   }
 
   /**
    * update_controller_config — 热更新 FSM 控制器配置
-   * 用于审核设置面板实时调整 states / transitions
+   * 用于审核设置面板实时调整 states / transitions / config_json
    *
    * @param controllerId - 控制器 ID（如 'fsm-task-v1'）
    * @param patch - 需要更新的字段（局部更新）
@@ -496,18 +518,44 @@ export class PrismaDAL {
    */
   async update_controller_config(
     controllerId: string,
-    patch: Partial<Pick<ControllerConfig, 'name' | 'states' | 'transitions' | 'initial_state'>>,
+    patch: Partial<Pick<ControllerConfig, 'name' | 'states' | 'transitions' | 'initial_state'>> & { config_json?: any },
   ): Promise<ControllerConfig | null> {
     const existing = await this.prisma.fSMController.findUnique({
       where: { controller_id: controllerId },
     });
     if (!existing) return null;
 
-    const data: Record<string, string> = {};
+    const data: Record<string, any> = {};
     if (patch.name !== undefined) data.name = patch.name;
     if (patch.states !== undefined) data.states_json = JSON.stringify(patch.states);
     if (patch.transitions !== undefined) data.transitions_json = JSON.stringify(patch.transitions);
     if (patch.initial_state !== undefined) data.initial_state = patch.initial_state;
+    
+    // PRD 8.3 & 19.2: Handle config_json field for dynamic review & tuning
+    if (patch.config_json !== undefined) {
+      data.config_json = typeof patch.config_json === 'string' 
+        ? patch.config_json 
+        : JSON.stringify(patch.config_json);
+    } else if (Object.keys(patch).some(k => [
+      'default_reviewer', 'poll_interval_seconds', 'blueprint_auto_advance', 
+      'max_concurrent_dispatches', 'retry_max_attempts', 'acceptance_mode', 'reviewer_routing'
+    ].includes(k))) {
+      // Flattened patch from API (T4.1 WebUI)
+      const currentConfig = JSON.parse(existing.config_json || '{}');
+      const newConfig = { ...currentConfig };
+      const configFields = [
+        'default_reviewer', 'poll_interval_seconds', 'dispatch_policy',
+        'blueprint_auto_advance', 'max_concurrent_dispatches', 'retry_max_attempts', 
+        'acceptance_mode', 'reviewer_routing'
+      ];
+      
+      configFields.forEach(f => {
+        if ((patch as any)[f] !== undefined) {
+          newConfig[f] = (patch as any)[f];
+        }
+      });
+      data.config_json = JSON.stringify(newConfig);
+    }
 
     const updated = await this.prisma.fSMController.update({
       where: { controller_id: controllerId },
@@ -521,7 +569,8 @@ export class PrismaDAL {
       states: JSON.parse(updated.states_json),
       transitions: JSON.parse(updated.transitions_json),
       initial_state: updated.initial_state,
-    };
+      config_json: JSON.parse(updated.config_json || '{}'),
+    } as any;
   }
 
   // ═══════════════════════════════════════════════════════════

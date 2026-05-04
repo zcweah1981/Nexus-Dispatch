@@ -175,6 +175,7 @@ model FSMController {
   states_json     String   // JSON: 状态定义列表
   transitions_json String  // JSON: 转换规则列表
   initial_state   String   // 初始状态名
+  config_json     String?  // JSON: 动态配置 (default_reviewer, dispatch_policy, etc.)
   created_at      DateTime @default(now())
   updated_at      DateTime @updatedAt
 
