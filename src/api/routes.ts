@@ -26,6 +26,11 @@ import {
   taskBatchSchema,
   taskAcceptSchema,
   taskRejectSchema,
+  // T3.1: Daemon tick API schemas
+  taskClaimByIdSchema,
+  runCreateSchema,
+  taskRecoverTimeoutsSchema,
+  runStatusUpdateSchema,
 } from './schemas';
 
 const ajv = new Ajv();
@@ -450,6 +455,177 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
       clearInterval(heartbeat);
       stateEmitter.off('state_change', onStateChange);
     });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  //  T3.1: Daemon Tick API（4个接口）
+  // ═══════════════════════════════════════════════════════════════
+
+  // ─── POST /api/v1/tasks/recover-timeouts — 超时任务回收 ──────────
+  // 注册在 /tasks/:id/claim 之前，避免 Express 路由冲突
+  router.post('/tasks/recover-timeouts', validateBody('taskRecoverTimeouts', taskRecoverTimeoutsSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const timeoutMinutes = req.body.timeout_minutes || 15;
+    const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+
+    try {
+      // 查找 dispatched 且有 running run 超过阈值的任务
+      const staleTasks = await prismaDal.client.task.findMany({
+        where: {
+          status: 'dispatched',
+          runs: {
+            some: {
+              status: 'running',
+              started_at: { lt: cutoff },
+            },
+          },
+        },
+      });
+
+      const recoveredIds: string[] = [];
+      for (const task of staleTasks) {
+        // 原子恢复：task → created, runs → failed
+        await prismaDal.client.$transaction(async (tx: any) => {
+          await tx.task.update({
+            where: { id: task.id },
+            data: { status: 'created' },
+          });
+          await tx.run.updateMany({
+            where: { task_id: task.id, status: 'running' },
+            data: { status: 'failed', error_stack: 'Timeout: recovered by daemon', ended_at: new Date() },
+          });
+        });
+        recoveredIds.push(task.id);
+      }
+
+      if (recoveredIds.length > 0) {
+        stateEmitter.emit('state_change', {
+          type: 'tasks_recovered',
+          data: { task_ids: recoveredIds, count: recoveredIds.length },
+        });
+      }
+
+      return res.status(200).json({ recovered: recoveredIds.length, task_ids: recoveredIds });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to recover timed-out tasks', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── POST /api/v1/tasks/:id/claim — 原子 claim 特定任务 ──────────
+  router.post('/tasks/:id/claim', validateBody('taskClaimById', taskClaimByIdSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const taskId = req.params.id as string;
+
+    try {
+      // 原子 claim：在事务内检查状态并更新，防止竞态
+      const claimed = await prismaDal.client.$transaction(async (tx: any) => {
+        const task = await tx.task.findUnique({ where: { id: taskId } });
+        if (!task) return null;
+        if (task.status !== 'created') return 'ALREADY_CLAIMED';
+        return await tx.task.update({
+          where: { id: taskId },
+          data: { status: 'dispatched' },
+        });
+      });
+
+      if (claimed === null) {
+        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
+      }
+      if (claimed === 'ALREADY_CLAIMED') {
+        return sendError(res, 409, `Task '${taskId}' is not in 'created' state (already claimed)`, ErrorCodes.BAD_REQUEST);
+      }
+
+      stateEmitter.emit('state_change', {
+        type: 'task_status_updated',
+        data: { task_id: taskId, old_status: 'created', new_status: 'dispatched' },
+      });
+
+      return res.status(200).json({ task: claimed });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to claim task', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── POST /api/v1/runs — 创建 Run 记录 ─────────────────────────
+  router.post('/runs', validateBody('runCreate', runCreateSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const { task_id, agent_id, idempotency_key } = req.body;
+
+    try {
+      // 1. 校验 task 存在
+      const task = await prismaDal.getTask(task_id);
+      if (!task) {
+        return sendError(res, 404, `Task '${task_id}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      // 2. 解析 agent_id（人类可读 ID → UUID PK）
+      const agent = await prismaDal.client.agent.findUnique({ where: { agent_id } });
+      if (!agent) {
+        return sendError(res, 404, `Agent '${agent_id}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      // 3. 创建 Run（agent_id 使用 UUID PK）
+      const run = await prismaDal.client.run.create({
+        data: {
+          task_id,
+          agent_id: agent.id,
+          idempotency_key: idempotency_key || `run-${task_id}-${Date.now()}`,
+          status: 'running',
+        },
+      });
+
+      stateEmitter.emit('state_change', {
+        type: 'run_created',
+        data: { run_id: run.run_id, task_id, agent_id },
+      });
+
+      return res.status(201).json({ run });
+    } catch (error: any) {
+      if (error.code === 'P2002') {
+        return sendError(res, 409, 'Duplicate idempotency_key', ErrorCodes.BAD_REQUEST);
+      }
+      return sendError(res, 500, 'Failed to create run', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── PATCH /api/v1/runs/:id/status — Run 状态更新 ────────────────
+  router.patch('/runs/:id/status', validateBody('runStatusUpdate', runStatusUpdateSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const runId = req.params.id as string;
+    const { status, error_stack } = req.body;
+
+    try {
+      const existing = await prismaDal.client.run.findUnique({ where: { run_id: runId } });
+      if (!existing) {
+        return sendError(res, 404, `Run '${runId}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      const updated = await prismaDal.client.run.update({
+        where: { run_id: runId },
+        data: {
+          status,
+          ...(error_stack !== undefined && { error_stack }),
+          ended_at: status !== 'running' ? new Date() : undefined,
+        },
+      });
+
+      stateEmitter.emit('state_change', {
+        type: 'run_status_updated',
+        data: { run_id: runId, status },
+      });
+
+      return res.status(200).json({ run: updated });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to update run status', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════

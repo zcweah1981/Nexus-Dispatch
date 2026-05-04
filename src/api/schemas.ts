@@ -108,6 +108,14 @@ export const controllerConfigUpdateSchema = {
     retry_max_attempts:         { type: 'integer', minimum: 0, maximum: 50 },
     acceptance_mode:            { type: 'object', additionalProperties: { type: 'string', enum: ['pm_audit', 'machine_audit', 'design_spec'] } },
     reviewer_routing:           { type: 'object', additionalProperties: { type: 'string' } },
+    notification_rules:         {
+      type: 'object',
+      properties: {
+        merge_dispatch_accept: { type: 'boolean' },
+        suppress_daemon_bots:  { type: 'boolean' },
+      },
+      additionalProperties: false,
+    },
   },
   additionalProperties: false,
   minProperties: 1,
@@ -221,6 +229,53 @@ export const taskRejectSchema = {
   properties: {
     reviewer_id: { type: 'string', minLength: 1 },
     reason:      { type: 'string', minLength: 1, maxLength: 4096 },
+  },
+  additionalProperties: false,
+} as const;
+
+// ═══════════════════════════════════════════════════════════════
+//  T3.1: Daemon Tick API Schemas（4个新接口）
+// ═══════════════════════════════════════════════════════════════
+
+// ─── POST /api/v1/tasks/:id/claim — 原子 claim 特定任务 ─────────
+export const taskClaimByIdSchema = {
+  $id: 'taskClaimById',
+  type: 'object',
+  properties: {},
+  additionalProperties: false,
+} as const;
+
+// ─── POST /api/v1/runs — 创建 Run 记录 ──────────────────────────
+export const runCreateSchema = {
+  $id: 'runCreate',
+  type: 'object',
+  required: ['task_id', 'agent_id'],
+  properties: {
+    task_id:         { type: 'string', minLength: 1 },
+    agent_id:        { type: 'string', minLength: 1 },
+    idempotency_key: { type: 'string' },
+  },
+  additionalProperties: false,
+} as const;
+
+// ─── POST /api/v1/tasks/recover-timeouts — 超时任务回收 ──────────
+export const taskRecoverTimeoutsSchema = {
+  $id: 'taskRecoverTimeouts',
+  type: 'object',
+  properties: {
+    timeout_minutes: { type: 'integer', minimum: 1, maximum: 1440 },
+  },
+  additionalProperties: false,
+} as const;
+
+// ─── PATCH /api/v1/runs/:id/status — Run 状态更新 ────────────────
+export const runStatusUpdateSchema = {
+  $id: 'runStatusUpdate',
+  type: 'object',
+  required: ['status'],
+  properties: {
+    status:      { type: 'string', enum: ['running', 'success', 'failed'] },
+    error_stack: { type: 'string', maxLength: 65536 },
   },
   additionalProperties: false,
 } as const;

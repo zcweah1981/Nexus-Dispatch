@@ -48,6 +48,7 @@ export interface ControllerConfig {
   states: unknown[];
   transitions: unknown[];
   initial_state: string;
+  config_json?: Record<string, any>;
 }
 
 // ─── DAL v2 主类 ─────────────────────────────────────────────
@@ -538,7 +539,7 @@ export class PrismaDAL {
         : JSON.stringify(patch.config_json);
     } else if (Object.keys(patch).some(k => [
       'default_reviewer', 'poll_interval_seconds', 'blueprint_auto_advance', 
-      'max_concurrent_dispatches', 'retry_max_attempts', 'acceptance_mode', 'reviewer_routing'
+      'max_concurrent_dispatches', 'retry_max_attempts', 'acceptance_mode', 'reviewer_routing', 'notification_rules'
     ].includes(k))) {
       // Flattened patch from API (T4.1 WebUI)
       const currentConfig = JSON.parse(existing.config_json || '{}');
@@ -546,7 +547,7 @@ export class PrismaDAL {
       const configFields = [
         'default_reviewer', 'poll_interval_seconds', 'dispatch_policy',
         'blueprint_auto_advance', 'max_concurrent_dispatches', 'retry_max_attempts', 
-        'acceptance_mode', 'reviewer_routing'
+        'acceptance_mode', 'reviewer_routing', 'notification_rules'
       ];
       
       configFields.forEach(f => {
