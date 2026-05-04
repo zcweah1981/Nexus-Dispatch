@@ -649,6 +649,19 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
         tools_allowed,
       });
 
+      // T4.2: Broadcast agent registration to SSE subscribers
+      stateEmitter.emit('state_change', {
+        type: 'agent_registered',
+        data: {
+          agent_id: agent.agent_id,
+          lane: agent.lane,
+          endpoint: agent.endpoint,
+          dialect: agent.dialect,
+          status: agent.status,
+          last_heartbeat: agent.last_heartbeat,
+        },
+      });
+
       return res.status(200).json({
         agent_id: agent.agent_id,
         lane: agent.lane,
@@ -912,11 +925,24 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
         data: { status: 'success', ended_at: new Date() },
       });
 
-      await (prismaDal as any).prisma.artifact.create({
+      const newArtifact = await (prismaDal as any).prisma.artifact.create({
         data: {
           run_id,
           artifact_type,
           payload: JSON.stringify(payload),
+        },
+      });
+
+      // T4.2: Broadcast artifact creation to SSE subscribers
+      stateEmitter.emit('state_change', {
+        type: 'artifact_created',
+        data: {
+          id: newArtifact.id,
+          run_id,
+          artifact_type,
+          task_id: taskId,
+          payload: typeof payload === 'object' ? payload : { raw: payload },
+          created_at: new Date().toISOString(),
         },
       });
 

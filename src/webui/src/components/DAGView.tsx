@@ -1,34 +1,59 @@
+/**
+ * DAGView — Real-time DAG task visualization with SSE-driven node updates.
+ *
+ * AC: DAGView 节点颜色实时变化: 灰(created)/蓝(running/dispatched)/绿(completed)/红(failed)
+ *
+ * Data flow:
+ *  1. On mount, fetches all tasks from /api/v1/tasks?project_id=... (or all)
+ *  2. Builds initial nodes from task data
+ *  3. Subscribes to SSE via useSSE hook
+ *  4. On task_status_updated / task_created events, updates node data in-place
+ *  5. Node colors are derived from task.status → CSS classes
+ */
+
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
-import ReactFlow, { 
-  Node, 
-  Edge, 
-  Controls, 
-  Background, 
-  applyNodeChanges, 
+import ReactFlow, {
+  Node,
+  Edge,
+  Controls,
+  Background,
+  applyNodeChanges,
   applyEdgeChanges,
   NodeChange,
   EdgeChange,
   Handle,
-  Position
+  Position,
 } from 'reactflow';
+import { useSSE, SSEEvent } from '../hooks/useSSE';
+
+// ─── Status → visual mapping ──────────────────────────────────────
+// 灰 = created (idle), 蓝 = dispatched/running (active), 绿 = completed, 红 = failed/blocked
+
+type VisualStatus = 'created' | 'running' | 'completed' | 'failed';
 
 interface NodeData {
   label: string;
-  status: 'created' | 'running' | 'completed' | 'failed' | 'blocked';
+  status: VisualStatus;
+  taskId: string;
   workerId?: string;
   avatarUrl?: string;
 }
 
-// Custom Node Component
+// ─── Custom Node Component ─────────────────────────────────────────
+
 const CustomNode = ({ data }: { data: NodeData }) => {
   const getStatusStyles = () => {
     switch (data.status) {
-      case 'created': return 'border-gray-500 border-dashed bg-gray-800 text-gray-400';
-      case 'running': return 'border-blue-500 bg-blue-900 bg-opacity-50 text-blue-100 shadow-[0_0_10px_rgba(59,130,246,0.5)] animate-pulse';
-      case 'completed': return 'border-green-500 bg-green-800 text-green-100 shadow-[0_0_10px_rgba(34,197,94,0.3)]';
-      case 'failed': 
-      case 'blocked': return 'border-red-500 bg-red-900 bg-opacity-80 text-red-100 animate-bounce shadow-[0_0_10px_rgba(239,68,68,0.5)]';
-      default: return 'border-gray-500 bg-gray-800';
+      case 'created':
+        return 'border-gray-500 border-dashed bg-gray-800 text-gray-400';
+      case 'running':
+        return 'border-blue-500 bg-blue-900 bg-opacity-50 text-blue-100 shadow-[0_0_10px_rgba(59,130,246,0.5)] animate-pulse';
+      case 'completed':
+        return 'border-green-500 bg-green-800 text-green-100 shadow-[0_0_10px_rgba(34,197,94,0.3)]';
+      case 'failed':
+        return 'border-red-500 bg-red-900 bg-opacity-80 text-red-100 animate-bounce shadow-[0_0_10px_rgba(239,68,68,0.5)]';
+      default:
+        return 'border-gray-500 bg-gray-800';
     }
   };
 
@@ -37,8 +62,7 @@ const CustomNode = ({ data }: { data: NodeData }) => {
       case 'created': return 'bg-gray-400';
       case 'running': return 'bg-blue-400 animate-ping';
       case 'completed': return 'bg-green-400';
-      case 'failed': 
-      case 'blocked': return 'bg-red-400';
+      case 'failed': return 'bg-red-400';
       default: return 'bg-gray-400';
     }
   };
@@ -46,13 +70,13 @@ const CustomNode = ({ data }: { data: NodeData }) => {
   return (
     <div className={`px-4 py-3 rounded-lg border-2 min-w-[150px] transition-all duration-500 ${getStatusStyles()}`}>
       <Handle type="target" position={Position.Left} className="w-2 h-2 !bg-gray-400" />
-      
+
       <div className="flex flex-col gap-2">
         <div className="flex justify-between items-center">
           <div className="text-xs font-mono font-bold">{data.label}</div>
           <div className={`w-2 h-2 rounded-full ${getStatusDot()}`} title={data.status} />
         </div>
-        
+
         {data.workerId && (
           <div className="flex items-center gap-2 mt-1 bg-black bg-opacity-30 p-1 rounded">
             {data.avatarUrl ? (
@@ -72,102 +96,247 @@ const CustomNode = ({ data }: { data: NodeData }) => {
   );
 };
 
-const nodeTypes = {
-  custom: CustomNode,
-};
+const nodeTypes = { custom: CustomNode };
 
-const initialNodes: Node[] = [
-  { id: '1', type: 'custom', position: { x: 50, y: 150 }, data: { label: 'T1: Setup', status: 'completed', workerId: 'devops-1' } },
-  { id: '2', type: 'custom', position: { x: 300, y: 50 }, data: { label: 'T2.1: DB Init', status: 'running', workerId: 'backend-1' } },
-  { id: '3', type: 'custom', position: { x: 300, y: 250 }, data: { label: 'T2.2: API Config', status: 'completed', workerId: 'backend-2' } },
-  { id: '4', type: 'custom', position: { x: 550, y: 150 }, data: { label: 'T3: Core Logic', status: 'created' } },
-  { id: '5', type: 'custom', position: { x: 800, y: 150 }, data: { label: 'T4: Integration', status: 'created' } },
-];
+// ─── Task → Node mapper ────────────────────────────────────────────
 
-const initialEdges: Edge[] = [
-  { id: 'e1-2', source: '1', target: '2', animated: true, style: { stroke: '#4b5563' } },
-  { id: 'e1-3', source: '1', target: '3', animated: false, style: { stroke: '#22c55e' } },
-  { id: 'e2-4', source: '2', target: '4', animated: false, style: { stroke: '#4b5563', strokeDasharray: '5,5' } },
-  { id: 'e3-4', source: '3', target: '4', animated: false, style: { stroke: '#4b5563', strokeDasharray: '5,5' } },
-  { id: 'e4-5', source: '4', target: '5', animated: false, style: { stroke: '#4b5563', strokeDasharray: '5,5' } },
-];
+function taskStatusToVisual(status: string): VisualStatus {
+  if (status === 'created') return 'created';
+  if (status === 'dispatched' || status === 'accepted' || status === 'running' ||
+      status === 'review_spawned' || status === 'completion_pending' || status === 'validating') {
+    return 'running';
+  }
+  if (status === 'completed') return 'completed';
+  if (status === 'failed') return 'failed';
+  return 'created';
+}
+
+interface ApiTask {
+  id: string;
+  title: string;
+  status: string;
+  objective?: string;
+  lane_required?: string;
+}
+
+// Simple grid layout: arrange nodes in rows of 3
+function layoutNodes(tasks: ApiTask[]): Node[] {
+  const COLS = 3;
+  const X_GAP = 280;
+  const Y_GAP = 160;
+  const X_OFFSET = 50;
+  const Y_OFFSET = 50;
+
+  return tasks.map((task, idx) => {
+    const col = idx % COLS;
+    const row = Math.floor(idx / COLS);
+    return {
+      id: task.id,
+      type: 'custom',
+      position: { x: X_OFFSET + col * X_GAP, y: Y_OFFSET + row * Y_GAP },
+      data: {
+        label: task.title || task.id,
+        status: taskStatusToVisual(task.status),
+        taskId: task.id,
+      },
+    };
+  });
+}
+
+// ─── Component ─────────────────────────────────────────────────────
 
 const DAGView: React.FC = () => {
-  const [nodes, setNodes] = useState<Node[]>(initialNodes);
-  const [edges, setEdges] = useState<Edge[]>(initialEdges);
-  const [toastMsg, setToastMsg] = useState<string | null>(null);
+  const [nodes, setNodes] = useState<Node[]>([]);
+  const [edges] = useState<Edge[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const sse = useSSE();
 
   const onNodesChange = useCallback(
     (changes: NodeChange[]) => setNodes((nds) => applyNodeChanges(changes, nds)),
-    []
+    [],
   );
   const onEdgesChange = useCallback(
-    (changes: EdgeChange[]) => setEdges((eds) => applyEdgeChanges(changes, eds)),
-    []
+    (changes: EdgeChange[]) => { /* edges not dynamically updated */ },
+    [],
   );
 
-  // Use SSE stream instead of mock data
+  // ─── Initial fetch ─────────────────────────────────────────────
   useEffect(() => {
-    const eventSource = new EventSource('/api/v1/events/stream');
-
-    eventSource.onmessage = (event) => {
+    let cancelled = false;
+    (async () => {
       try {
-        const parsedData = JSON.parse(event.data);
-        console.log('Received SSE:', parsedData);
-        
-        if (parsedData.type === 'task_status_updated') {
-            setNodes((nds) => 
-                nds.map((node) => {
-                    // Match node.id with parsedData.data.task_id if possible, or update by label if ids differ
-                    if (node.id === parsedData.data.task_id || node.data.label.includes(parsedData.data.task_id)) {
-                        return { ...node, data: { ...node.data, status: parsedData.data.status } };
-                    }
-                    return node;
-                })
-            );
+        const res = await fetch('/api/v1/tasks?limit=100');
+        if (!res.ok) throw new Error(`API returned ${res.status}`);
+        const data = await res.json();
+        const tasks: ApiTask[] = data.tasks || [];
+        if (!cancelled) {
+          setNodes(layoutNodes(tasks));
+          setLoading(false);
         }
-        
-        if (parsedData.type === 'run_status_updated') {
-             // You can add logic to update edge styles based on run status
-             // or update workerId if run_created provides it.
+      } catch (err: any) {
+        if (!cancelled) {
+          setError(err.message);
+          setLoading(false);
         }
-      } catch (error) {
-        console.error('Error parsing SSE data:', error);
       }
-    };
-
-    eventSource.onerror = (error) => {
-      console.error('EventSource failed:', error);
-      eventSource.close();
-    };
-
-    return () => {
-      eventSource.close();
-    };
+    })();
+    return () => { cancelled = true; };
   }, []);
 
+  // ─── SSE-driven real-time updates ──────────────────────────────
+  useEffect(() => {
+    if (!sse.lastEvent) return;
+    const event = sse.lastEvent;
+
+    switch (event.type) {
+      case 'task_status_updated': {
+        const { task_id, new_status, status } = event.data;
+        const visualStatus = taskStatusToVisual(new_status || status);
+        setNodes((nds) =>
+          nds.map((node) => {
+            if (node.id === task_id) {
+              return {
+                ...node,
+                data: {
+                  ...node.data,
+                  status: visualStatus,
+                },
+              };
+            }
+            return node;
+          }),
+        );
+        break;
+      }
+
+      case 'task_created': {
+        const { task_id, title, status } = event.data;
+        // Check if node already exists (avoid duplicate from initial fetch)
+        setNodes((nds) => {
+          if (nds.some((n) => n.id === task_id)) return nds;
+          // Add new node at a position below the last row
+          const lastNode = nds[nds.length - 1];
+          const newRow = lastNode ? Math.floor(nds.length / 3) + 1 : 0;
+          const newCol = nds.length % 3;
+          return [
+            ...nds,
+            {
+              id: task_id,
+              type: 'custom' as const,
+              position: { x: 50 + newCol * 280, y: 50 + newRow * 160 },
+              data: {
+                label: title || task_id,
+                status: taskStatusToVisual(status || 'created'),
+                taskId: task_id,
+              },
+            },
+          ];
+        });
+        break;
+      }
+
+      case 'task_accepted': {
+        // Task accepted → completed visual
+        const { task_id } = event.data;
+        setNodes((nds) =>
+          nds.map((node) =>
+            node.id === task_id
+              ? { ...node, data: { ...node.data, status: 'completed' as VisualStatus } }
+              : node,
+          ),
+        );
+        break;
+      }
+
+      case 'task_rejected': {
+        // Task rejected → failed visual
+        const { task_id } = event.data;
+        setNodes((nds) =>
+          nds.map((node) =>
+            node.id === task_id
+              ? { ...node, data: { ...node.data, status: 'failed' as VisualStatus } }
+              : node,
+          ),
+        );
+        break;
+      }
+
+      case 'run_created': {
+        // Run created → update node with worker info, status = running
+        const { task_id, agent_id } = event.data;
+        setNodes((nds) =>
+          nds.map((node) =>
+            node.id === task_id
+              ? {
+                  ...node,
+                  data: {
+                    ...node.data,
+                    status: 'running' as VisualStatus,
+                    workerId: agent_id,
+                  },
+                }
+              : node,
+          ),
+        );
+        break;
+      }
+
+      default:
+        break;
+    }
+  }, [sse.lastEvent]);
+
+  // ─── Render ────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div className="h-full w-full flex items-center justify-center bg-[#0f1115]">
+        <div className="flex flex-col items-center">
+          <div className="w-8 h-8 border-2 border-blue-500 border-t-transparent rounded-full animate-spin" />
+          <div className="mt-3 text-[#8b949e] font-mono text-xs tracking-[0.15em]">LOADING_DAG...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="h-full w-full">
-      {toastMsg && (
-        <div className="absolute top-4 left-1/2 transform -translate-x-1/2 z-50 bg-red-900 border border-red-500 text-white px-4 py-2 rounded shadow-lg flex items-center gap-2 max-w-lg w-full">
-          <svg className="w-5 h-5 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"></path></svg>
-          <span className="text-sm font-mono">{toastMsg}</span>
+    <div className="h-full w-full relative">
+      {/* Connection status indicator */}
+      <div className="absolute top-3 right-3 z-10 flex items-center gap-2">
+        <div className={`w-2 h-2 rounded-full ${sse.connected ? 'bg-green-400' : 'bg-red-400 animate-pulse'}`} />
+        <span className="text-[10px] font-mono text-[#8b949e]">
+          {sse.connected ? 'LIVE' : `RECONNECTING (${sse.reconnectCount})`}
+        </span>
+      </div>
+
+      {error && (
+        <div className="absolute top-3 left-3 z-50 bg-red-900 border border-red-500 text-white px-3 py-2 rounded shadow-lg text-xs font-mono max-w-md">
+          ⚠ {error}
         </div>
       )}
-      
-      <ReactFlow
-        nodes={nodes}
-        edges={edges}
-        onNodesChange={onNodesChange}
-        onEdgesChange={onEdgesChange}
-        nodeTypes={nodeTypes}
-        fitView
-        className="bg-[#0f1115]"
-        proOptions={{ hideAttribution: true }}
-      >
-        <Background color="#374151" gap={16} />
-        <Controls className="bg-gray-800 border-gray-700 fill-gray-300" />
-      </ReactFlow>
+
+      {nodes.length === 0 ? (
+        <div className="h-full w-full flex items-center justify-center bg-[#0f1115]">
+          <div className="text-center">
+            <div className="text-[#8b949e] font-mono text-sm">NO_TASKS_FOUND</div>
+            <div className="text-[#484f58] font-mono text-xs mt-1">Tasks will appear here when created via API</div>
+          </div>
+        </div>
+      ) : (
+        <ReactFlow
+          nodes={nodes}
+          edges={edges}
+          onNodesChange={onNodesChange}
+          onEdgesChange={onEdgesChange}
+          nodeTypes={nodeTypes}
+          fitView
+          className="bg-[#0f1115]"
+          proOptions={{ hideAttribution: true }}
+        >
+          <Background color="#374151" gap={16} />
+          <Controls className="bg-gray-800 border-gray-700 fill-gray-300" />
+        </ReactFlow>
+      )}
     </div>
   );
 };
