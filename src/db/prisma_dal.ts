@@ -574,26 +574,28 @@ export class PrismaDAL {
    * closeout_completed_group — 对已完成的 TaskGroup 执行收尾
    *
    * 前置条件：check_group_completion 返回 is_complete = true
-   * 操作：将 group 状态置为 'completed'
+   * 操作：将 group 状态置为 'archived'，生成组摘要
    *
    * @param groupId   - TaskGroup.group_id
    * @param projectId - 项目隔离 ID
-   * @returns 更新后的 TaskGroup 或 null（如果未满足条件）
+   * @returns { group, summary } 或 null（如果未满足条件）
    */
   async closeout_completed_group(
     groupId: string,
     projectId: string,
-  ) {
+  ): Promise<{ group: any; summary: GroupCompletionResult } | null> {
     const completion = await this.check_group_completion(groupId, projectId);
 
     if (!completion.is_complete) {
       return null;
     }
 
-    return await this.prisma.taskGroup.update({
+    const group = await this.prisma.taskGroup.update({
       where: { group_id: groupId },
-      data: { status: 'completed' },
+      data: { status: 'archived' },
     });
+
+    return { group, summary: completion };
   }
 
   /**
@@ -641,6 +643,140 @@ export class PrismaDAL {
       }
 
       return thawedIds;
+    });
+  }
+
+  // ═══════════════════════════════════════════════════════════
+  //  T3.2: 冷冻库解冻 + 组闭环引擎
+  // ═══════════════════════════════════════════════════════════
+
+  /**
+   * thaw_next_phase — 从蓝图解冻下一个阶段
+   *
+   * 业务场景：当一个 TaskGroup 完成并被 archive 后，
+   * 从 project 的 blueprint 中找到下一个 phase，创建 TaskGroup 并注入任务。
+   *
+   * 注入逻辑使用幂等方式（INSERT OR IGNORE 语义）：
+   * 如果同名任务已存在于同一 group 中，跳过不重复创建。
+   *
+   * @param projectId       - 项目隔离 ID
+   * @param completedGroupId - 刚完成的 TaskGroup.group_id
+   * @returns 创建的 task ID 列表（空 = 已是最后阶段或无蓝图）
+   */
+  async thaw_next_phase(
+    projectId: string,
+    completedGroupId: string,
+  ): Promise<string[]> {
+    // 1. 查找 project 的活跃蓝图
+    const blueprints = await this.prisma.projectBlueprint.findMany({
+      where: { project_id: projectId, status: 'active' },
+      orderBy: { updated_at: 'desc' },
+      take: 1,
+    });
+    if (blueprints.length === 0) return [];
+
+    const blueprint = blueprints[0];
+    const schema = JSON.parse(blueprint.schema_json) as {
+      phases?: Array<{
+        phase_id: string;
+        name: string;
+        group_id: string;
+        tasks?: InjectPhaseTaskInput[];
+      }>;
+    };
+
+    if (!schema.phases || schema.phases.length === 0) return [];
+
+    // 2. 找到当前 phase 在蓝图中的索引
+    const currentIndex = schema.phases.findIndex(
+      (p) => p.group_id === completedGroupId,
+    );
+    if (currentIndex === -1) return []; // 不在蓝图中
+    if (currentIndex + 1 >= schema.phases.length) return []; // 已是最后阶段
+
+    const nextPhase = schema.phases[currentIndex + 1];
+    if (!nextPhase.tasks || nextPhase.tasks.length === 0) return [];
+
+    // 3. 创建或复用 TaskGroup
+    let group = await this.prisma.taskGroup.findUnique({
+      where: { group_id: nextPhase.group_id },
+    });
+    if (!group) {
+      group = await this.prisma.taskGroup.create({
+        data: {
+          group_id: nextPhase.group_id,
+          name: nextPhase.name,
+          description: `Auto-thawed from phase ${nextPhase.phase_id}`,
+        },
+      });
+    }
+
+    // 4. 幂等注入（INSERT OR IGNORE 语义）
+    const injectedIds: string[] = [];
+    for (const t of nextPhase.tasks) {
+      // 检查是否已存在同名任务（标题 + group 组合去重）
+      const existing = await this.prisma.task.findFirst({
+        where: {
+          project_id: projectId,
+          task_group_id: group.id,
+          title: t.title,
+        },
+      });
+      if (existing) continue; // IGNORE — 跳过已存在的
+
+      const task = await this.prisma.task.create({
+        data: {
+          project_id: projectId,
+          title: t.title,
+          objective: t.objective,
+          lane_required: t.lane_required,
+          status: 'dispatched', // 解冻即 dispatched
+          task_group_id: group.id,
+          payload: t.payload ? JSON.stringify(t.payload) : null,
+          payload_schema: t.payload_schema ? JSON.stringify(t.payload_schema) : null,
+          acceptance_criteria: t.acceptance_criteria
+            ? JSON.stringify(t.acceptance_criteria)
+            : null,
+          reviewer: t.reviewer ?? null,
+          acceptance_mode: t.acceptance_mode ?? null,
+        },
+      });
+      injectedIds.push(task.id);
+    }
+
+    return injectedIds;
+  }
+
+  /**
+   * getActiveGroupsForProject — 获取项目下所有活跃的 TaskGroup
+   */
+  async getActiveGroupsForProject(projectId: string) {
+    // 找到 project 下所有 task 的 group，去重
+    const tasks = await this.prisma.task.findMany({
+      where: { project_id: projectId, task_group_id: { not: null } },
+      select: { task_group_id: true },
+      distinct: ['task_group_id'],
+    });
+
+    const groupIds = tasks.map((t) => t.task_group_id).filter(Boolean) as string[];
+
+    if (groupIds.length === 0) return [];
+
+    return await this.prisma.taskGroup.findMany({
+      where: {
+        id: { in: groupIds },
+        status: 'active',
+      },
+    });
+  }
+
+  /**
+   * getBlueprintByProject — 获取项目的活跃蓝图
+   */
+  async getBlueprintByProject(projectId: string) {
+    return await this.prisma.projectBlueprint.findFirst({
+      where: { project_id: projectId, status: 'active' },
+      orderBy: { updated_at: 'desc' },
     });
   }
 

@@ -1,14 +1,30 @@
 import axios from 'axios';
 import { AdapterFactory } from '../adapters';
+import { PrismaDAL } from '../db/prisma_dal';
+import { FreezerEngine } from '../engine/freezer';
 
 // Sleep helper
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 class Daemon {
         private running: boolean = false;
+        private prismaDal: PrismaDAL | null = null;
+        private freezerEngine: FreezerEngine | null = null;
 
     constructor() {
             }
+
+    /**
+     * 初始化 PrismaDAL 和 FreezerEngine
+     */
+    private async ensureInit() {
+        if (!this.prismaDal) {
+            const dbUrl = process.env.DATABASE_URL || 'file:../prisma/data/nexus.db';
+            this.prismaDal = new PrismaDAL(dbUrl);
+            await this.prismaDal.initPragmas();
+            this.freezerEngine = new FreezerEngine(this.prismaDal);
+        }
+    }
 
     
     async tick() {
@@ -61,6 +77,43 @@ class Daemon {
             }
             console.error('Error polling API:', error.message);
         }
+
+        // ─── T3.2: Freezer Engine — tick 末尾闭环 ──────────────
+        // 对所有已知 project 执行 check → closeout → thaw 流程
+        await this.runFreezerTick();
+    }
+
+    /**
+     * runFreezerTick — 在 tick 末尾执行冷冻库闭环
+     *
+     * 查找所有活跃 project，对每个 project 运行 FreezerEngine.run_once()
+     * 通知由被派 Agent 自己的 bot 发送到群组，本方法不负责通知
+     */
+    private async runFreezerTick() {
+        try {
+            await this.ensureInit();
+            if (!this.prismaDal || !this.freezerEngine) return;
+
+            // 获取所有活跃项目
+            const projects = await (this.prismaDal as any).prisma.project.findMany({
+                where: { status: 'active' },
+            });
+
+            for (const project of projects) {
+                const result = await this.freezerEngine.run_once(project.id);
+                if (result.groups_archived.length > 0) {
+                    console.log(
+                        `[Freezer] Project ${project.id}: archived groups [${result.groups_archived.join(', ')}], ` +
+                        `injected ${Object.values(result.tasks_injected).flat().length} new tasks`,
+                    );
+                }
+                if (result.errors.length > 0) {
+                    console.error(`[Freezer] Project ${project.id} errors:`, result.errors);
+                }
+            }
+        } catch (error: any) {
+            console.error('[Freezer] Tick error:', error.message);
+        }
     }
 
     async start() {
@@ -72,9 +125,12 @@ class Daemon {
         }
     }
     
-    stop() {
+    async stop() {
         this.running = false;
-                console.log('Nexus Dispatch Daemon stopped.');
+        if (this.prismaDal) {
+            await this.prismaDal.close();
+        }
+        console.log('Nexus Dispatch Daemon stopped.');
     }
 }
 
