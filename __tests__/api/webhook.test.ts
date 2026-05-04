@@ -94,8 +94,10 @@ describe('Webhook API', () => {
                 payload: { wrong_field: 'value' } // Missing sha
             });
         
+        // T2.6: Standardized error format
         expect(response.status).toBe(422);
-        expect(response.body.error).toBe('Validation Error');
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+        expect(response.body.details).toBeDefined();
     });
 
     it('should return 201 and update state if payload is valid', async () => {

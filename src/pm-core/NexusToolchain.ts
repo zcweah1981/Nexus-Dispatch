@@ -1,9 +1,11 @@
-import { Task, Artifact } from '../types';
+import { Task, Artifact, DagPlanTaskInput } from '../types';
 
 /**
  * Headless PM Core 专有工具链 (Nexus Toolchain)
  * 封装在沙盒中，隐式注入 project_id。封杀原生子代理 (Subagent) 的直接创建，
  * 强制通过调度系统和系统提供的工具来操作。
+ *
+ * Updated for V7.5 type alignment (Prisma schema fields).
  */
 export class NexusToolchain {
     private projectId: string;
@@ -17,12 +19,12 @@ export class NexusToolchain {
      * nexus_create_dag_plan(tasks)
      * 核心建单能力。底层拦截循环依赖。
      */
-    async createDagPlan(tasks: Omit<Task, 'project_id' | 'status'>[]): Promise<boolean> {
+    async createDagPlan(tasks: DagPlanTaskInput[]): Promise<boolean> {
         console.log(`[NexusToolchain - ${this.projectId}] Validating DAG for ${tasks.length} tasks...`);
         if (this.hasCycle(tasks)) {
             throw new Error('400 Bad Request: Cycle detected in task dependencies (DAG violation)');
         }
-        
+
         console.log(`[NexusToolchain - ${this.projectId}] Plan created successfully.`);
         return true;
     }
@@ -39,7 +41,12 @@ export class NexusToolchain {
      * nexus_query_board_view()
      * 拉取精简版 Kanban 状态
      */
-    async queryBoardView(): Promise<any> {
+    async queryBoardView(): Promise<{
+        projectId: string;
+        inProgress: number;
+        blocked: number;
+        completed: number;
+    }> {
         console.log(`[NexusToolchain - ${this.projectId}] Querying Kanban board view`);
         return {
             projectId: this.projectId,
@@ -55,14 +62,14 @@ export class NexusToolchain {
      */
     async acceptArtifact(taskId: string, artifact: Artifact): Promise<boolean> {
         console.log(`[NexusToolchain - ${this.projectId}] Validating artifact for task ${taskId}...`);
-        
+
         const validTypes = ['repo_commit', 'live_url', 'screenshot', 'metric_log'];
-        if (!validTypes.includes(artifact.type)) {
-            console.warn(`[NexusToolchain - ${this.projectId}] Artifact validation failed: Invalid type ${artifact.type}`);
+        if (!validTypes.includes(artifact.artifact_type)) {
+            console.warn(`[NexusToolchain - ${this.projectId}] Artifact validation failed: Invalid type ${artifact.artifact_type}`);
             return false;
         }
 
-        console.log(`[NexusToolchain - ${this.projectId}] Artifact accepted: ${artifact.type}`);
+        console.log(`[NexusToolchain - ${this.projectId}] Artifact accepted: ${artifact.artifact_type}`);
         return true;
     }
 
@@ -76,9 +83,9 @@ export class NexusToolchain {
     }
 
     // 内部方法：DAG 环路检测
-    private hasCycle(tasks: Pick<Task, 'task_id' | 'dependencies'>[]): boolean {
+    private hasCycle(tasks: Array<{ id: string; dependencies: string[] }>): boolean {
         const adjList = new Map<string, string[]>();
-        tasks.forEach(t => adjList.set(t.task_id, t.dependencies || []));
+        tasks.forEach(t => adjList.set(t.id, t.dependencies || []));
 
         const visited = new Set<string>();
         const recursionStack = new Set<string>();
@@ -100,7 +107,7 @@ export class NexusToolchain {
         };
 
         for (const task of tasks) {
-            if (dfs(task.task_id)) return true;
+            if (dfs(task.id)) return true;
         }
 
         return false;

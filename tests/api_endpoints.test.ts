@@ -68,8 +68,10 @@ describe('API Endpoints: /v1/agents/register and /v1/projects/init', () => {
                 lane: 'DEV'
             });
             
-        expect(response.status).toBe(400);
-        expect(response.body.error).toContain('Missing required fields');
+        // T2.6: Now validated by Ajv schema → 422 with VALIDATION_ERROR
+        expect(response.status).toBe(422);
+        expect(response.body.code).toBe('VALIDATION_ERROR');
+        expect(response.body.details).toBeDefined();
     });
 
     it('should update existing agent lane and heartbeat on re-register', async () => {
@@ -139,8 +141,9 @@ describe('API Endpoints: /v1/agents/register and /v1/projects/init', () => {
                 description: 'Missing name'
             });
             
-        expect(response.status).toBe(400);
-        expect(response.body.error).toContain('Missing required field');
+        // T2.6: Now validated by Ajv schema → 422 with VALIDATION_ERROR
+        expect(response.status).toBe(422);
+        expect(response.body.code).toBe('VALIDATION_ERROR');
     });
 });
 

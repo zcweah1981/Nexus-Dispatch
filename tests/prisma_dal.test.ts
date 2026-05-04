@@ -21,7 +21,7 @@ describe('PrismaDAL Concurrency', () => {
         const taskId = uuidv4();
 
         // 1. Create dependencies
-        await dal._createProjectAndWorker(projectId, agentId);
+        await dal._createProjectAndAgent(projectId, agentId);
 
         // 2. Create Task
         await dal.createTask({

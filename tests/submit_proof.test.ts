@@ -19,7 +19,7 @@ describe('Task Submit Proof API', () => {
             CREATE TABLE IF NOT EXISTS nexus_tasks (id TEXT PRIMARY KEY, project_id TEXT, title TEXT, objective TEXT, lane TEXT, status TEXT, max_retries INTEGER, retry_count INTEGER DEFAULT 0, payload_schema TEXT, ext_meta TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
             CREATE TABLE IF NOT EXISTS nexus_workers (id TEXT PRIMARY KEY, lane TEXT, status TEXT, last_heartbeat DATETIME);
             CREATE TABLE IF NOT EXISTS nexus_runs (run_id TEXT PRIMARY KEY, task_id TEXT, worker_id TEXT, idempotency_key TEXT, status TEXT DEFAULT 'running', error_stack TEXT, started_at DATETIME DEFAULT CURRENT_TIMESTAMP, ended_at DATETIME);
-            CREATE TABLE IF NOT EXISTS nexus_artifacts (id TEXT PRIMARY KEY, run_id TEXT, artifact_type TEXT, payload TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
+            CREATE TABLE IF NOT EXISTS nexus_artifacts (id TEXT PRIMARY KEY, run_id TEXT, artifact_type TEXT, payload_data TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
         `);
         
         dal._createProjectAndWorker('proj-1', 'worker-1');
@@ -115,8 +115,10 @@ describe('Task Submit Proof API', () => {
                 }
             });
 
+        // T2.6: Standardized error format
         expect(res.status).toBe(422);
-        expect(res.body.error).toBe('Validation Error');
+        expect(res.body.code).toBe('VALIDATION_ERROR');
+        expect(res.body.details).toBeDefined();
 
         const task = dal.getTask(taskId);
         expect(task?.status).toBe('dispatched'); // Should not change
