@@ -171,6 +171,89 @@ export class PrismaDAL {
     return await this.prisma.agent.findUnique({ where: { agent_id: agentId } });
   }
 
+  /**
+   * listAgents — 列出所有已注册的 Agent
+   * @returns Agent 列表
+   */
+  async listAgents() {
+    return await this.prisma.agent.findMany({
+      orderBy: { created_at: 'asc' },
+    });
+  }
+
+  /**
+   * registerAgent — 注册新 Agent 或心跳续约
+   *
+   * 首次注册：创建 Agent 记录，缺失字段使用默认值
+   * 再次注册：更新 last_heartbeat + lane，status 置 online
+   *
+   * @param data - { id: agent_id, lane, endpoint?, dialect? }
+   * @returns Agent 记录
+   */
+  async registerAgent(data: {
+    id: string;
+    lane: string;
+    endpoint?: string;
+    dialect?: string;
+    soul_prompt?: string;
+    tools_allowed?: string;
+  }) {
+    const now = new Date();
+    const defaults = {
+      endpoint: data.endpoint || 'http://localhost:9000/webhook',
+      dialect: data.dialect || 'hermes',
+      soul_prompt: data.soul_prompt || '',
+      tools_allowed: data.tools_allowed || '[]',
+    };
+
+    return await this.prisma.agent.upsert({
+      where: { agent_id: data.id },
+      update: {
+        lane: data.lane,
+        ...(data.endpoint && { endpoint: data.endpoint }),
+        ...(data.dialect && { dialect: data.dialect }),
+        status: 'online',
+        last_heartbeat: now,
+      },
+      create: {
+        agent_id: data.id,
+        lane: data.lane,
+        endpoint: defaults.endpoint,
+        dialect: defaults.dialect,
+        soul_prompt: defaults.soul_prompt,
+        tools_allowed: defaults.tools_allowed,
+        status: 'online',
+        last_heartbeat: now,
+      },
+    });
+  }
+
+  /**
+   * getAgentHealth — 单个 Agent 探活
+   *
+   * 逻辑：last_heartbeat 距今 > 15s 则标记为 offline
+   *
+   * @param agentId - agent_id（如 'long-coder-1'）
+   * @returns Agent 记录 + computed status 或 null
+   */
+  async getAgentHealth(agentId: string) {
+    const agent = await this.prisma.agent.findUnique({
+      where: { agent_id: agentId },
+    });
+    if (!agent) return null;
+
+    const now = Date.now();
+    const heartbeatMs = agent.last_heartbeat ? new Date(agent.last_heartbeat).getTime() : 0;
+    const elapsed = now - heartbeatMs;
+    const computedStatus = elapsed > 15_000 ? 'offline' : 'online';
+
+    return {
+      ...agent,
+      status: computedStatus,
+      health_checked_at: new Date().toISOString(),
+    };
+  }
+
   // ─── Project 操作 ────────────────────────────────────────────
 
   async getProject(projectId: string) {

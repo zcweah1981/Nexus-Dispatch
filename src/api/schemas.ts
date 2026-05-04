@@ -23,8 +23,12 @@ export const agentRegisterSchema = {
   type: 'object',
   required: ['id', 'lane'],
   properties: {
-    id:   { type: 'string', minLength: 1, maxLength: 128 },
-    lane: { type: 'string', minLength: 1, maxLength: 64 },
+    id:            { type: 'string', minLength: 1, maxLength: 128 },
+    lane:          { type: 'string', minLength: 1, maxLength: 64 },
+    endpoint:      { type: 'string', maxLength: 512 },
+    dialect:       { type: 'string', maxLength: 64 },
+    soul_prompt:   { type: 'string', maxLength: 8192 },
+    tools_allowed: { type: 'string', maxLength: 4096 },
   },
   additionalProperties: false,
 } as const;

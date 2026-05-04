@@ -19,6 +19,7 @@ import {
   controllerConfigUpdateSchema,
   blueprintCreateSchema,
   projectInitSchema,
+  agentRegisterSchema,
 } from './schemas';
 
 const ajv = new Ajv();
@@ -219,6 +220,73 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
       clearInterval(heartbeat);
       stateEmitter.off('state_change', onStateChange);
     });
+  });
+
+  // ═══════════════════════════════════════════════════════════════
+  //  T2.3: Agent 管理 API（3个接口）
+  // ═══════════════════════════════════════════════════════════════
+
+  // ─── POST /api/v1/agents/register — 注册/心跳续约 ────────────
+  router.post('/agents/register', validateBody('agentRegister', agentRegisterSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const { id, lane, endpoint, dialect, soul_prompt, tools_allowed } = req.body;
+
+    try {
+      const agent = await prismaDal.registerAgent({
+        id,
+        lane,
+        endpoint,
+        dialect,
+        soul_prompt,
+        tools_allowed,
+      });
+
+      return res.status(200).json({
+        agent_id: agent.agent_id,
+        lane: agent.lane,
+        endpoint: agent.endpoint,
+        dialect: agent.dialect,
+        status: agent.status,
+        last_heartbeat: agent.last_heartbeat,
+      });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to register agent', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── GET /api/v1/agents — 列出所有 Agent 状态 ────────────────
+  router.get('/agents', async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+
+    try {
+      const agents = await prismaDal.listAgents();
+      return res.status(200).json({ agents });
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to list agents', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
+
+  // ─── GET /api/v1/agents/:id/health — 单个探活 ────────────────
+  router.get('/agents/:id/health', async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+    const agentId = req.params.id as string;
+
+    try {
+      const health = await prismaDal.getAgentHealth(agentId);
+      if (!health) {
+        return sendError(res, 404, `Agent '${agentId}' not found`, ErrorCodes.NOT_FOUND);
+      }
+
+      return res.status(200).json(health);
+    } catch (error: any) {
+      return sendError(res, 500, 'Failed to check agent health', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
   });
 
   // ═══════════════════════════════════════════════════════════════
