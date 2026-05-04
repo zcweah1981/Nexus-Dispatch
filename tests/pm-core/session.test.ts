@@ -1,72 +1,88 @@
 import { SessionManager } from '../../src/pm-core/SessionManager';
-import Database from 'better-sqlite3';
-import * as path from 'path';
-import * as fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
+import * as http from 'http';
 
-describe('T5.2 PM Core Session Isolation & State Rehydration', () => {
+/**
+ * T5.2 PM Core Session Isolation & State Rehydration
+ *
+ * V2: Tests the API-driven SessionManager (no better-sqlite3 imports).
+ * Spins up a minimal HTTP server to mock the API layer, verifying that
+ * rehydrateState correctly consumes the RESTful API and builds the prompt.
+ */
+describe('T5.2 PM Core Session Isolation & State Rehydration (API-driven)', () => {
     let sessionManager: SessionManager;
-    let dbPath: string;
-    let projectId: string;
-    let db: Database.Database;
+    let mockServer: http.Server;
+    let mockServerPort: number;
+    let receivedRequests: { url: string; headers: Record<string, string> }[] = [];
 
-    beforeAll(() => {
-        dbPath = path.resolve(__dirname, '../../data/nexus_test_session.db');
-        if (fs.existsSync(dbPath)) {
-            fs.unlinkSync(dbPath);
-        }
-        db = new Database(dbPath);
-        
-        // Initialize schema for testing
-        db.exec(`
-            CREATE TABLE IF NOT EXISTS nexus_projects (
-                id TEXT PRIMARY KEY,
-                name TEXT NOT NULL,
-                status TEXT NOT NULL
-            );
-            CREATE TABLE IF NOT EXISTS nexus_tasks (
-                id TEXT PRIMARY KEY,
-                project_id TEXT NOT NULL,
-                title TEXT NOT NULL,
-                objective TEXT,
-                lane TEXT NOT NULL,
-                status TEXT DEFAULT 'created',
-                max_retries INTEGER DEFAULT 3,
-                retry_count INTEGER DEFAULT 0,
-                payload_schema TEXT,
-                ext_meta TEXT,
-                created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
-                FOREIGN KEY (project_id) REFERENCES nexus_projects(id)
-            );
-        `);
-        
-        sessionManager = new SessionManager(dbPath);
+    beforeAll(async () => {
+        // Set up a minimal mock API server
+        mockServer = http.createServer((req, res) => {
+            receivedRequests.push({
+                url: req.url || '/',
+                headers: req.headers as Record<string, string>,
+            });
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+
+            if (req.url?.includes('/api/v1/tasks')) {
+                // Return mock tasks
+                res.end(JSON.stringify([
+                    { id: 'task_1', title: 'Build DB Schema', lane: 'LANE_CODE', status: 'completed' },
+                    { id: 'task_2', title: 'Implement SSE API', lane: 'LANE_API', status: 'dispatched' },
+                ]));
+            } else {
+                res.end(JSON.stringify([]));
+            }
+        });
+
+        await new Promise<void>((resolve) => {
+            mockServer.listen(0, () => resolve());
+        });
+        mockServerPort = (mockServer.address() as any).port;
+
+        sessionManager = new SessionManager(`http://localhost:${mockServerPort}`, 'test-token');
     });
 
-    afterAll(() => {
-        if (db) db.close();
-        if (fs.existsSync(dbPath)) fs.unlinkSync(dbPath);
+    afterAll(async () => {
+        await new Promise<void>((resolve) => mockServer.close(() => resolve()));
+    });
+
+    beforeEach(() => {
+        receivedRequests = [];
     });
 
     it('AC1: /resume test_proj clears history and generates exact System Prompt with progress state', async () => {
-        projectId = 'test_proj_rehydrate';
-        
-        db.exec(`INSERT INTO nexus_projects (id, name, status) VALUES ('${projectId}', 'Test Rehydrate', 'active')`);
-        db.exec(`INSERT INTO nexus_tasks (id, project_id, title, lane, status) VALUES ('task_1', '${projectId}', 'Build DB Schema', 'LANE_CODE', 'completed')`);
-        db.exec(`INSERT INTO nexus_tasks (id, project_id, title, lane, status) VALUES ('task_2', '${projectId}', 'Implement SSE API', 'LANE_API', 'dispatched')`);
-        
-        const projectMd = `# Project X
-## Objective
-Testing rehydration
-`;
+        const projectId = 'test_proj_rehydrate';
+        const projectMd = `# Project X\n## Objective\nTesting rehydration\n`;
 
         const { systemPrompt } = await sessionManager.resumeSession(projectId, projectMd);
-        
+
+        // Verify system prompt content
         expect(systemPrompt).toContain('You are resuming work on project test_proj_rehydrate.');
         expect(systemPrompt).toContain('=== PROJECT DOMAIN (PROJECT.md) ===');
         expect(systemPrompt).toContain('Testing rehydration');
         expect(systemPrompt).toContain('=== PROGRESS CHECK (STATE MACHINE) ===');
         expect(systemPrompt).toContain('- Task [task_1]: Build DB Schema | Lane: LANE_CODE | Status: completed');
         expect(systemPrompt).toContain('- Task [task_2]: Implement SSE API | Lane: LANE_API | Status: dispatched');
+    });
+
+    it('AC2: SessionManager calls API endpoint (no direct DB access)', async () => {
+        const projectId = 'api_verification_proj';
+        await sessionManager.rehydrateState(projectId, '# Test');
+
+        // Verify the API was called
+        expect(receivedRequests.length).toBeGreaterThanOrEqual(1);
+        const req = receivedRequests[0];
+        expect(req.url).toContain('/api/v1/tasks');
+        expect(req.url).toContain(encodeURIComponent(projectId));
+        // Verify auth token was passed
+        expect(req.headers['authorization']).toBe('Bearer test-token');
+    });
+
+    it('AC3: handles API failure gracefully (returns empty task list)', async () => {
+        // Create a session manager pointing to a non-existent server
+        const badManager = new SessionManager('http://localhost:1', 'bad-token');
+        const result = await badManager.rehydrateState('ghost_project', '# Ghost');
+        expect(result).toContain('No active tasks found');
     });
 });

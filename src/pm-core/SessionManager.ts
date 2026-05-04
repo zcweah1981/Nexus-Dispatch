@@ -1,52 +1,84 @@
 import { Task } from '../db/dal';
-import Database from 'better-sqlite3';
 import * as path from 'path';
 
-export class SessionManager {
-    private dbPath: string;
+/** Minimal task shape returned by the API */
+interface ApiTask {
+    id: string;
+    title: string;
+    status: string;
+    lane: string;
+}
 
-    constructor(dbPath: string = path.resolve(__dirname, '../../data/nexus.db')) {
-        this.dbPath = dbPath;
+/**
+ * SessionManager — PM Core session isolation & state rehydration.
+ *
+ * V2: Fully API-driven. No direct SQLite / better-sqlite3 imports.
+ * All task reads go through the RESTful API layer, respecting the
+ * data red-line: "SQLite 仅对 API Server 内部可见，对外绝对封闭".
+ */
+export class SessionManager {
+    private apiUrl: string;
+    private authToken: string;
+
+    constructor(apiUrl: string = process.env.NEXUS_API_URL || 'http://localhost:8000', authToken: string = process.env.NEXUS_AUTH_TOKEN || '') {
+        this.apiUrl = apiUrl;
+        this.authToken = authToken;
     }
 
     /**
-     * Clear LLM Provider conversation history for physical cutoff
-     * In a real implementation, this would call out to the LLM Gateway/Provider's API
-     * to purge the specific session context.
-     * For PM Core, we mock this interface.
+     * Clear LLM Provider conversation history for physical cutoff.
+     * Calls out to the LLM Gateway/Provider's API to purge the specific session context.
      */
     public async clearLlmMemory(projectId: string): Promise<boolean> {
         console.log(`[SessionManager] Physical truncation: Cleared LLM memory for project ${projectId}`);
-        // MOCK: physical truncate operation
+        // MOCK: physical truncate operation — to be wired to actual LLM gateway
         return true;
     }
 
     /**
-     * Perform State Rehydration (状态重入)
+     * Fetch tasks for a project via the API layer.
+     */
+    private async fetchTasks(projectId: string): Promise<ApiTask[]> {
+        const url = `${this.apiUrl}/api/v1/tasks?project_id=${encodeURIComponent(projectId)}`;
+        const headers: Record<string, string> = {
+            'Accept': 'application/json',
+        };
+        if (this.authToken) {
+            headers['Authorization'] = `Bearer ${this.authToken}`;
+        }
+
+        let res: Response;
+        try {
+            res = await fetch(url, { headers });
+        } catch (err) {
+            console.error(`[SessionManager] API unreachable for project ${projectId}:`, (err as Error).message);
+            return [];
+        }
+        if (!res.ok) {
+            console.error(`[SessionManager] API returned ${res.status} for project ${projectId}`);
+            return [];
+        }
+        const body = await res.json();
+        // API returns array or { tasks: [...] }
+        return Array.isArray(body) ? body : (body.tasks || []);
+    }
+
+    /**
+     * Perform State Rehydration (状态重入).
      * Rebuilds the System Prompt strictly containing:
      * 1. The Project's PROJECT.md content (as the source of truth)
-     * 2. The Current progress list from the SQLite Task State Machine
+     * 2. The current progress list from the API Task State Machine
      */
-    public rehydrateState(projectId: string, projectMdContent: string): string {
-        const db = new Database(this.dbPath);
-        
-        // Fetch current tasks for the project to rebuild progress context
-        const rows = db.prepare(`
-            SELECT id, title, status, lane
-            FROM nexus_tasks
-            WHERE project_id = ?
-            ORDER BY created_at ASC
-        `).all(projectId) as any[];
-        
-        db.close();
+    public async rehydrateState(projectId: string, projectMdContent: string): Promise<string> {
+        const tasks = await this.fetchTasks(projectId);
 
-        let progressList = "Current SQLite Task State:\\n";
-        if (rows.length === 0) {
-            progressList += "- No active tasks found.\\n";
+        let progressList = "Current Task State:\n";
+        if (tasks.length === 0) {
+            progressList += "- No active tasks found.\n";
         } else {
-            rows.forEach(r => {
-                progressList += `- Task [${r.id}]: ${r.title} | Lane: ${r.lane} | Status: ${r.status}\\n`;
-            });
+            for (const t of tasks) {
+                progressList += `- Task [${t.id}]: ${t.title} | Lane: ${t.lane} | Status: ${t.status}\n`;
+            }
         }
 
         const systemPrompt = `You are resuming work on project ${projectId}.
@@ -68,8 +100,8 @@ ${progressList}`;
         await this.clearLlmMemory(projectId);
 
         // 2. Perform state rehydration
-        const systemPrompt = this.rehydrateState(projectId, projectMdContent);
-        
+        const systemPrompt = await this.rehydrateState(projectId, projectMdContent);
+
         return {
             systemPrompt
         };

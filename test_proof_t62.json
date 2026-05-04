@@ -1,9 +1,0 @@
-{
-  "task_id": "proj-nexus-v71:t6-2",
-  "status": "completed",
-  "proofs": {
-    "test_passed": true,
-    "test_log_snippet": "Executed test task successfully."
-  },
-  "blocked_by": null
-}
