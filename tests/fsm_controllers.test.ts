@@ -16,17 +16,30 @@ import DAL from '../src/db/dal';
 import { PrismaDAL } from '../src/db/prisma_dal';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
+import { execSync } from 'child_process';
 
-const AUTH_TOKEN = 'test-token-fsm';
+const AUTH_TOKEN='***';
 
-// Use the existing test DB that already has the correct schema
-const TEST_DB_DIR = path.join(__dirname, '..', 'prisma', 'data');
+function createSchemaInitializedTestDb(prefix: string): { dbUrl: string; dbPath: string; tempDir: string } {
+  const repoRoot = path.join(__dirname, '..');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
+  const dbPath = path.join(tempDir, 'test.db');
+  const dbUrl = `file:${dbPath}`;
+  execSync('npx prisma db push --skip-generate --accept-data-loss', {
+    cwd: repoRoot,
+    env: { ...process.env, DATABASE_URL: dbUrl },
+    stdio: 'pipe',
+  });
+  return { dbUrl, dbPath, tempDir };
+}
 
 describe('T2.5: FSM Controller + SSE API', () => {
   let app: any;
   let dal: DAL;
   let prismaDal: PrismaDAL;
   let testDbPath: string;
+  let testDbTempDir: string;
 
   beforeAll(async () => {
     // 1. Setup legacy DAL (required by server.ts)
@@ -55,20 +68,12 @@ describe('T2.5: FSM Controller + SSE API', () => {
       );
     `);
 
-    // 2. Create a test DB with the correct schema by copying the checked-in fixture.
-    // R0 guard: keep tests must not fall back to production DB files.
-    testDbPath = path.join(TEST_DB_DIR, 'test_fsm_t25.db');
-    const sourceDb = path.join(TEST_DB_DIR, 'test_dal_v2.db');
-    
-    // Copy checked-in fixture DB (already has correct schema from prisma migrate)
-    if (fs.existsSync(sourceDb)) {
-      fs.copyFileSync(sourceDb, testDbPath);
-    } else {
-      throw new Error(`Missing checked-in test fixture DB: ${sourceDb}`);
-    }
-
-    const dbUrl = `file:${testDbPath}`;
-    prismaDal = new PrismaDAL(dbUrl);
+    // 2. Initialize an isolated test DB from the checked-in Prisma schema.
+    // R0 guard: keep tests must not copy or depend on ignored local/production DB files.
+    const testDb = createSchemaInitializedTestDb('nexus-fsm-controller');
+    testDbPath = testDb.dbPath;
+    testDbTempDir = testDb.tempDir;
+    prismaDal = new PrismaDAL(testDb.dbUrl);
     await prismaDal.initPragmas();
 
     // Clean up fsm_controllers for isolation
@@ -81,8 +86,7 @@ describe('T2.5: FSM Controller + SSE API', () => {
   afterAll(async () => {
     await prismaDal.close();
     dal.close();
-    // Clean up test DB
-    try { fs.unlinkSync(testDbPath); } catch {}
+    try { fs.rmSync(testDbTempDir, { recursive: true, force: true }); } catch {}
   });
 
   // ─── Helper: seed a test controller ────────────────────────────

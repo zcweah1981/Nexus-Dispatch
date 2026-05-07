@@ -22,9 +22,9 @@
 - `tests/v8/v8_smoke.test.ts`
 
 ### keep 测试 DB 边界
-- `tests/dynamic_review.test.ts` — 删除生产 DB fallback，只允许 checked-in fixture DB。
-- `tests/fsm_controllers.test.ts` — 删除生产 DB fallback，只允许 checked-in fixture DB。
-- `tests/freezer.test.ts` — 删除生产 DB fallback；fixture 不存在时从 Prisma schema 初始化干净 DB。
+- `tests/dynamic_review.test.ts` — 删除 ignored 本地 DB/生产 DB 复制逻辑；每次在 `os.tmpdir()` 创建临时 DB，并通过 checked-in Prisma schema 初始化。
+- `tests/fsm_controllers.test.ts` — 删除 ignored 本地 DB/生产 DB 复制逻辑；每次在 `os.tmpdir()` 创建临时 DB，并通过 checked-in Prisma schema 初始化。
+- `tests/freezer.test.ts` — 删除 fixture 优先复制逻辑；每次在 `os.tmpdir()` 创建临时 DB，并通过 checked-in Prisma schema 初始化。
 
 ### 测试稳定性
 - `tests/sse.test.ts` — SSE 测试改为原生 HTTP server/client，显式关闭连接，避免 open handle。
@@ -45,7 +45,7 @@
 | `npm run build` | passed / exit 0 | `/tmp/nexus-r0-build-final.txt` |
 | `npm test -- --runInBand` | 22 suites / 181 tests passed | `/tmp/nexus-r0-test-final.txt` |
 | `git diff --check` | passed / no output | `/tmp/nexus-r0-diff-check-final.txt` |
-| keep 测试生产 DB fallback 搜索 | 默认 keep 基线无命中；legacy 内保留旧引用作为归档参考 | `/tmp/nexus-r0-prod-db-fallback-check.txt` |
+| keep 测试本地/生产 DB 依赖搜索 | 三个 keep 测试及 Long proof 无旧本地 fixture/DB 复制依赖误述 | `/tmp/nexus-r0-prod-db-fallback-check-current.txt` |
 | `git status --short --untracked-files=all` + tracked pollution grep | 无 DB/dist/node_modules/secrets 新污染；历史 malformed proof 为删除清理项 | `/tmp/nexus-r0-git-status-final.txt` |
 
 ## 结果
@@ -54,7 +54,7 @@
 - `.gitignore` 已覆盖 DB、dist、node_modules、proof JSON、logs、secrets、临时产物。
 - 现有测试已分类为 keep / legacy / rewrite；legacy 隔离有明确原因且未删除有效源代码伪造通过。
 - V8 smoke skeleton 已建立，且测试 DB 从 checked-in schema 创建到临时目录，不复制生产 DB。
-- 默认 keep 测试中的生产 DB fallback 已移除；旧 `nexus.db` 引用仅存在于 `tests/legacy/**` 或非默认测试文件中。
+- 默认 keep 测试中的本地/生产 DB 复制依赖已移除；`tests/dynamic_review.test.ts`、`tests/fsm_controllers.test.ts`、`tests/freezer.test.ts` 均从 checked-in Prisma schema 初始化临时 DB。
 - build/test 全量通过。
 
 ## 剩余风险

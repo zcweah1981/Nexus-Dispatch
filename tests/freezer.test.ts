@@ -29,33 +29,23 @@ import { FreezerEngine } from '../src/engine/freezer';
 import { v4 as uuidv4 } from 'uuid';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 import { execSync } from 'child_process';
 
-// 创建独立的测试数据库
-const TEST_DB_DIR = path.join(__dirname, '..', 'prisma', 'data');
-const TEST_DB_PATH = path.join(TEST_DB_DIR, 'test_freezer_t32.db');
-const SOURCE_DB = path.join(TEST_DB_DIR, 'test_dal_v2.db');
+// 创建独立的测试数据库：只从 checked-in Prisma schema 初始化，不复制本地/生产 DB。
+let TEST_DB_TEMP_DIR: string | undefined;
+let TEST_DB_PATH: string | undefined;
 
 function createTestDbUrl(): string {
-  if (fs.existsSync(TEST_DB_PATH)) {
-    fs.unlinkSync(TEST_DB_PATH);
-  }
-  if (fs.existsSync(SOURCE_DB)) {
-    fs.copyFileSync(SOURCE_DB, TEST_DB_PATH);
-  } else {
-    // R0 guard: keep tests must not copy production DB files.
-    // If the fixture is unavailable, initialize a clean DB from Prisma schema instead.
-    const dbUrl = `file:${TEST_DB_PATH}`;
-    execSync(
-      `npx prisma db push --skip-generate --accept-data-loss`,
-      {
-        cwd: path.join(__dirname, '..'),
-        env: { ...process.env, DATABASE_URL: dbUrl },
-        stdio: 'pipe',
-      },
-    );
-  }
-  return `file:${TEST_DB_PATH}`;
+  TEST_DB_TEMP_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-freezer-'));
+  TEST_DB_PATH = path.join(TEST_DB_TEMP_DIR, 'test.db');
+  const dbUrl = `file:${TEST_DB_PATH}`;
+  execSync('npx prisma db push --skip-generate --accept-data-loss', {
+    cwd: path.join(__dirname, '..'),
+    env: { ...process.env, DATABASE_URL: dbUrl },
+    stdio: 'pipe',
+  });
+  return dbUrl;
 }
 
 describe('T3.2: Freezer Engine — 冷冻库解冻 + 组闭环', () => {
@@ -157,9 +147,9 @@ describe('T3.2: Freezer Engine — 冷冻库解冻 + 组闭环', () => {
 
   afterAll(async () => {
     await dal.close();
-    try {
-      fs.unlinkSync(TEST_DB_PATH);
-    } catch {}
+    if (TEST_DB_TEMP_DIR) {
+      try { fs.rmSync(TEST_DB_TEMP_DIR, { recursive: true, force: true }); } catch {}
+    }
   });
 
   // ─── Helper: 注入任务到 group ──────────────────────────────

@@ -17,16 +17,30 @@ import DAL from '../src/db/dal';
 import { PrismaDAL } from '../src/db/prisma_dal';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
+import { execSync } from 'child_process';
 
-const AUTH_TOKEN = 'test-t33-token';
+const AUTH_TOKEN='***';
 
-const TEST_DB_DIR = path.join(__dirname, '..', 'prisma', 'data');
+function createSchemaInitializedTestDb(prefix: string): { dbUrl: string; dbPath: string; tempDir: string } {
+  const repoRoot = path.join(__dirname, '..');
+  const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), `${prefix}-`));
+  const dbPath = path.join(tempDir, 'test.db');
+  const dbUrl = `file:${dbPath}`;
+  execSync('npx prisma db push --skip-generate --accept-data-loss', {
+    cwd: repoRoot,
+    env: { ...process.env, DATABASE_URL: dbUrl },
+    stdio: 'pipe',
+  });
+  return { dbUrl, dbPath, tempDir };
+}
 
 describe('T3.3: 动态审核派单引擎', () => {
   let app: any;
   let dal: DAL;
   let prismaDal: PrismaDAL;
   let testDbPath: string;
+  let testDbTempDir: string;
   let projectId: string;
   let agentId: string;
 
@@ -57,17 +71,13 @@ describe('T3.3: 动态审核派单引擎', () => {
       );
     `);
 
-    // 2. Copy the checked-in test fixture DB with V7.5 schema.
-    // R0 guard: keep tests must not fall back to production DB files.
-    testDbPath = path.join(TEST_DB_DIR, 'test_dynamic_review_t33.db');
-    const sourceDb = path.join(TEST_DB_DIR, 'test_dal_v2.db');
-    if (fs.existsSync(sourceDb)) {
-      fs.copyFileSync(sourceDb, testDbPath);
-    } else {
-      throw new Error(`Missing checked-in test fixture DB: ${sourceDb}`);
-    }
+    // 2. Initialize an isolated test DB from the checked-in Prisma schema.
+    // R0 guard: keep tests must not copy or depend on ignored local/production DB files.
+    const testDb = createSchemaInitializedTestDb('nexus-dynamic-review');
+    testDbPath = testDb.dbPath;
+    testDbTempDir = testDb.tempDir;
 
-    prismaDal = new PrismaDAL(`file:${testDbPath}`);
+    prismaDal = new PrismaDAL(testDb.dbUrl);
     await prismaDal.initPragmas();
 
     // 3. Seed project + agent
@@ -97,8 +107,8 @@ describe('T3.3: 动态审核派单引擎', () => {
   afterAll(async () => {
     await prismaDal.close();
     dal.close();
-    try { fs.unlinkSync(testDbPath); } catch {}
-  });
+    try { fs.rmSync(testDbTempDir, { recursive: true, force: true }); } catch {}
+  }, 30000);
 
   // ─── Helper: create a task via API ──────────────────────────────
   async function createTask(overrides: Record<string, any> = {}) {
