@@ -1,6 +1,6 @@
-// Nexus Dispatch System — Prisma Schema V7.5
-// 全表重建：tasks 补字段、4 张新表、artifacts 扩展
-// Task: nd-v75-t11 | Agent: long-coder-1
+// Nexus Dispatch System — Prisma Schema V8-R1
+// 范围：只定义/整理 V8 Schema + Prisma 单一数据层契约；不执行生产 DB 迁移，不进入 R2-R9。
+// Legacy boundary: src/db/dal.ts / data/nexus.db 属于冻结参考，不参与 V8 新主线。
 
 generator client {
   provider = "prisma-client-js"
@@ -11,93 +11,152 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// ─── Agent（执行 Agent 注册表） ────────────────────────────
-model Agent {
-  id             String   @id @default(uuid())
-  agent_id       String   @unique // e.g. 'long-coder-1'
-  endpoint       String   // Webhook url
-  lane           String   // DEV, DESIGN, OPS, CONTENT
-  dialect        String   // hermes, openclaw
-  soul_prompt    String   // PM customized prompt
-  tools_allowed  String   // JSON string of allowed tools
-  status         String   @default("offline") // online, offline
-  last_heartbeat DateTime?
-  created_at     DateTime @default(now())
-
-  runs           Run[]
-
-  @@map("nexus_agents")
-}
-
-// ─── Project（项目） ──────────────────────────────────────
+// ─── Project（项目 / 多租户边界） ────────────────────────────
 model Project {
   id             String   @id @default(uuid())
   name           String   @unique
   status         String   @default("active") // active, archived
   pm_soul_prompt String?  // PM customized prompt
-  channel_config String?  // JSON: Telegram/Discord configs
+  channel_config String?  // JSON: Telegram/Discord/session configs
   created_at     DateTime @default(now())
 
-  tasks          Task[]
-  blueprints     ProjectBlueprint[]
+  agents          Agent[]
+  taskGroups      TaskGroup[]
+  tasks           Task[]
+  runs            Run[]
+  artifacts       Artifact[]
+  blueprints      ProjectBlueprint[]
+  reviews         Review[]
+  reports         Report[]
+  projectCronjobs ProjectCronjob[]
 
   @@map("nexus_projects")
 }
 
-// ─── TaskGroup（任务分组，支持 DAG 编排） ────────────────────
+// ─── Agent（执行 Agent 注册表） ───────────────────────────────
+model Agent {
+  id             String   @id @default(uuid())
+  agent_id       String   @unique // e.g. 'long-coder-1'
+  project_id     String?  // V8: optional project binding; global agents keep null
+  endpoint       String   // Webhook url
+  lane           String   // DEV, DESIGN, OPS, CONTENT, REVIEW
+  dialect        String   // hermes, openclaw, claude, codex
+  soul_prompt    String   // PM customized prompt
+  tools_allowed  String   // JSON string of allowed tools
+  status         String   @default("offline") // online, offline, disabled
+  last_heartbeat DateTime?
+  created_at     DateTime @default(now())
+
+  project         Project? @relation(fields: [project_id], references: [id], onDelete: SetNull)
+  runs            Run[]
+
+  @@index([project_id])
+  @@index([lane, status])
+  @@map("nexus_agents")
+}
+
+// ─── FSMController（状态机控制器定义） ────────────────────────
+model FSMController {
+  id               String   @id @default(uuid())
+  controller_id    String   @unique // e.g. 'fsm-task-v8'
+  project_id       String?  // null = global default controller
+  name             String
+  entity_type      String   // project, agent, task, run, review, report, cronjob
+  states_json      String   // JSON: state list
+  transitions_json String   // JSON: transition rules
+  initial_state    String
+  config_json      String?  // JSON: reviewer policy, dispatch policy, retry policy
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
+
+  @@index([project_id, entity_type])
+  @@index([entity_type])
+  @@map("fsm_controllers")
+}
+
+// ─── ProjectBlueprint（项目蓝图模板） ──────────────────────────
+model ProjectBlueprint {
+  id           String   @id @default(uuid())
+  project_id   String
+  blueprint_id String   @unique // e.g. 'bp-nexus-v8'
+  name         String
+  version      String   @default("1.0")
+  schema_json  String   // JSON: phases/groups/tasks/review policy schema
+  status       String   @default("draft") // draft, active, archived
+  created_at   DateTime @default(now())
+  updated_at   DateTime @updatedAt
+
+  project      Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  @@index([project_id])
+  @@map("project_blueprints")
+}
+
+// ─── TaskGroup（任务分组 / 阶段 / group-scoped dispatch） ──────
 model TaskGroup {
   id          String   @id @default(uuid())
-  group_id    String   @unique // e.g. 'nd-v75-p1'
+  project_id  String?  // V8 project scope; nullable for V7.5 compatibility
+  group_id    String   @unique // user-facing group key, e.g. 'nexus-v8-r1'
   name        String
   description String?
-  status      String   @default("active") // active, completed, archived
+  status      String   @default("active") // active, running, archived, cancelled
+  priority    Int      @default(0)
+  ext_meta    String?  // JSON: phase metadata / closeout summary
   created_at  DateTime @default(now())
+  updated_at  DateTime @updatedAt
 
+  project     Project? @relation(fields: [project_id], references: [id], onDelete: Cascade)
   tasks       Task[]
 
+  @@index([project_id, status])
   @@map("task_groups")
 }
 
-// ─── Task（任务核心表） ────────────────────────────────────
+// ─── Task（任务核心表） ──────────────────────────────────────
 model Task {
-  id                 String   @id @default(uuid())
-  project_id         String
-  title              String
-  objective          String
-  lane_required      String
-  status             String   @default("created") // created, dispatched, accepted, validating, completed, failed
-  payload_schema     String?  // JSON Schema for payload validation
-  payload            String?  // JSON: Detailed context
-  proof_data         String?  // JSON: Artifacts from worker (Git SHA, Logs)
-  ext_meta           String?  // JSON: Extended metadata
+  id                  String   @id @default(uuid())
+  project_id          String
+  title               String
+  objective           String
+  lane_required       String
+  status              String   @default("created") // created, dispatched, running, completion_pending, review_pending, completed, retry_ready, blocked, dead_letter, cancelled
+  payload_schema      String?  // JSON Schema for payload validation
+  payload             String?  // JSON: worker-visible task context
+  proof_data          String?  // JSON string: worker/reviewer proof snapshot
+  ext_meta            String?  // JSON: trace, reviewer snapshot, retry metadata
 
-  // V7.5 新增字段
-  task_group_id      String?  // FK → TaskGroup.id
-  acceptance_criteria String? // JSON: 验收标准列表
-  reviewer           String?  // e.g. 'pm-orchestrator-1'
-  acceptance_mode    String?  // pm_audit, auto_verify, manual
+  // V8 unified grouping field. API may accept a user-facing group_id, but Repository must resolve it to TaskGroup.id here.
+  task_group_id       String?
+  acceptance_criteria String?  // JSON: acceptance criteria list
+  reviewer            String?  // reviewer agent_id snapshot; policy source remains controller/reviewer registry
+  acceptance_mode     String?  // pm_audit, repo_pr_tests_proof, standard, manual
 
-  max_retries        Int      @default(3)
-  retry_count        Int      @default(0)
-  created_at         DateTime @default(now())
+  max_retries         Int      @default(3)
+  retry_count         Int      @default(0)
+  created_at          DateTime @default(now())
+  updated_at          DateTime @updatedAt
 
-  project            Project     @relation(fields: [project_id], references: [id], onDelete: Cascade)
-  taskGroup          TaskGroup?  @relation(fields: [task_group_id], references: [id], onDelete: SetNull)
-  runs               Run[]
-  outgoing_deps      TaskDependency[] @relation("TaskDepSource")
-  incoming_deps      TaskDependency[] @relation("TaskDepTarget")
+  project             Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  taskGroup           TaskGroup? @relation(fields: [task_group_id], references: [id], onDelete: SetNull)
+  runs                Run[]
+  artifacts           Artifact[]
+  reports             Report[]
+  outgoing_deps       TaskDependency[] @relation("TaskDepSource")
+  incoming_deps       TaskDependency[] @relation("TaskDepTarget")
+  reviewsAsOriginal   Review[] @relation("ReviewOriginalTask")
+  reviewsAsReviewTask Review[] @relation("ReviewTask")
 
   @@index([status, lane_required])
-  @@index([project_id])
+  @@index([project_id, status])
   @@index([task_group_id])
   @@map("nexus_tasks")
 }
 
-// ─── TaskDependency（任务间依赖关系，DAG 拓扑） ─────────────
+// ─── TaskDependency（DAG 拓扑边） ────────────────────────────
 model TaskDependency {
   id              String   @id @default(uuid())
-  task_id         String   // 源任务
-  depends_on_id   String   // 依赖的目标任务
+  task_id         String   // source task: this task depends on depends_on_id
+  depends_on_id   String   // target task that must complete first
   dependency_type String   @default("blocks") // blocks, requires, related
   created_at      DateTime @default(now())
 
@@ -110,75 +169,125 @@ model TaskDependency {
   @@map("task_dependencies")
 }
 
-// ─── Run（执行流水） ──────────────────────────────────────
+// ─── Run（一次 Worker 执行流水） ──────────────────────────────
 model Run {
   run_id          String    @id @default(uuid())
+  project_id      String?   // nullable for V7.5 compatibility; V8 Repository must write it
   task_id         String
-  agent_id        String
+  agent_id        String    // FK points to Agent.id (UUID/internal id), not necessarily Agent.agent_id
+  dispatch_id     String?   // external dispatch trace id
+  worker_run_id   String?   // worker-side run id
   idempotency_key String    @unique
-  status          String    @default("running") // running, success, failed
+  status          String    @default("running") // running, success, failed, cancelled
   error_stack     String?
+  result_summary  String?
   started_at      DateTime  @default(now())
   ended_at        DateTime?
+  updated_at      DateTime  @updatedAt
 
+  project         Project?  @relation(fields: [project_id], references: [id], onDelete: Cascade)
   task            Task      @relation(fields: [task_id], references: [id], onDelete: Cascade)
   agent           Agent     @relation(fields: [agent_id], references: [id], onDelete: Cascade)
   artifacts       Artifact[]
+  reports         Report[]
 
+  @@index([project_id, status])
   @@index([task_id, status])
+  @@index([dispatch_id])
   @@map("nexus_runs")
 }
 
-// ─── Artifact（产物表，V7.5 扩展） ────────────────────────
+// ─── Artifact（结构化产物 / proof / repo proof） ──────────────
 model Artifact {
   id            String   @id @default(uuid())
+  project_id    String?  // V8 Repository must write it; nullable to avoid legacy DB coupling
+  task_id       String?
   run_id        String
   artifact_type String
-  payload       String   // JSON
+  payload       String   // Legacy-compatible JSON column used by old PrismaDAL callers
+  payload_data  String?  // V8 canonical JSON payload; new Repository should prefer this field
+  proof         String?  // JSON: structured verification proof
+  path          String?  // file path / URL / repo path
+  metadata_json String?  // JSON: dispatch_id, run_id, report_id, reviewer metadata
   created_at    DateTime @default(now())
 
-  // V7.5 新增字段
-  proof         String?  // JSON: 结构化验证证明
-  path          String?  // 文件路径或 URL
-  metadata_json String?  // JSON: 扩展元数据
-
+  project       Project? @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  task          Task?    @relation(fields: [task_id], references: [id], onDelete: Cascade)
   run           Run      @relation(fields: [run_id], references: [run_id], onDelete: Cascade)
 
+  @@index([project_id, artifact_type])
+  @@index([task_id])
   @@index([run_id])
   @@map("nexus_artifacts")
 }
 
-// ─── ProjectBlueprint（项目蓝图模板） ──────────────────────
-model ProjectBlueprint {
-  id          String   @id @default(uuid())
-  project_id  String
-  blueprint_id String @unique // e.g. 'bp-nexus-v75'
-  name        String
-  version     String   @default("1.0")
-  schema_json String   // JSON: 蓝图 Schema 定义
-  status      String   @default("draft") // draft, active, archived
-  created_at  DateTime @default(now())
-  updated_at  DateTime @updatedAt
+// ─── Review（审核实例 / 原任务与审核任务的显式桥） ─────────────
+model Review {
+  id               String   @id @default(uuid())
+  project_id       String
+  original_task_id String
+  review_task_id   String?
+  reviewer_agent_id String
+  status           String   @default("created") // created, dispatched, completed, changes_requested, blocked
+  verdict          String?  // pass, fail, changes_requested
+  reason           String?
+  rework_json      String?  // JSON: structured rework contract
+  proof_json       String?  // JSON: reviewer proof
+  created_at       DateTime @default(now())
+  updated_at       DateTime @updatedAt
 
-  project     Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  project          Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  originalTask     Task     @relation("ReviewOriginalTask", fields: [original_task_id], references: [id], onDelete: Cascade)
+  reviewTask       Task?    @relation("ReviewTask", fields: [review_task_id], references: [id], onDelete: SetNull)
 
-  @@index([project_id])
-  @@map("project_blueprints")
+  @@index([project_id, status])
+  @@index([original_task_id])
+  @@index([review_task_id])
+  @@map("reviews")
 }
 
-// ─── FSMController（有限状态机控制器定义） ──────────────────
-model FSMController {
-  id              String   @id @default(uuid())
-  controller_id   String   @unique // e.g. 'fsm-task-v1'
-  name            String
-  entity_type     String   // task, run, agent, project
-  states_json     String   // JSON: 状态定义列表
-  transitions_json String  // JSON: 转换规则列表
-  initial_state   String   // 初始状态名
-  config_json     String?  // JSON: 动态配置 (default_reviewer, dispatch_policy, etc.)
-  created_at      DateTime @default(now())
-  updated_at      DateTime @updatedAt
+// ─── Report（群组可见/静默报告队列） ─────────────────────────
+model Report {
+  id            String   @id @default(uuid())
+  project_id    String
+  task_id       String?
+  run_id        String?
+  message_type  String   // agent_result, review_result, pm_acceptance, closeout, etc.
+  status        String   @default("pending") // pending, sending, sent, suppressed, failed
+  summary       String?
+  payload_json  String   // JSON: visible/report payload
+  delivery_json String?  // JSON: channel, proof, lock, suppression reason
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
 
-  @@index([entity_type])
-  @@map("fsm_controllers")
+  project       Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+  task          Task?    @relation(fields: [task_id], references: [id], onDelete: SetNull)
+  run           Run?     @relation(fields: [run_id], references: [run_id], onDelete: SetNull)
+
+  @@index([project_id, status])
+  @@index([project_id, message_type])
+  @@index([task_id])
+  @@index([run_id])
+  @@map("reports")
+}
+
+// ─── ProjectCronjob（项目级 Cron Registry） ───────────────────
+model ProjectCronjob {
+  id            String   @id @default(uuid())
+  project_id    String
+  cronjob_id    String   // external scheduler job id / registry key
+  name          String
+  schedule      String
+  status        String   @default("paused") // active, paused, disabled
+  owner_agent_id String?
+  config_json   String?  // JSON: toolsets, prompt template, delivery policy
+  last_run_at   DateTime?
+  created_at    DateTime @default(now())
+  updated_at    DateTime @updatedAt
+
+  project       Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  @@unique([project_id, cronjob_id])
+  @@index([project_id, status])
+  @@map("project_cronjobs")
 }
