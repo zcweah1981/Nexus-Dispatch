@@ -81,9 +81,9 @@ beforeAll(async () => {
   app = createServer(legacyDal, AUTH_TOKEN, prismaDal);
 });
 
-afterAll(() => {
+afterAll(async () => {
   legacyDal.close();
-  prismaDal.close();
+  await prismaDal.close();
   try {
     fs.rmSync(path.dirname(tmpDbPath), { recursive: true, force: true });
     fs.rmSync(legacyDir, { recursive: true, force: true });

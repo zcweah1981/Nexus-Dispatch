@@ -55,21 +55,16 @@ describe('T2.5: FSM Controller + SSE API', () => {
       );
     `);
 
-    // 2. Create a test DB with the correct schema by copying the existing one
+    // 2. Create a test DB with the correct schema by copying the checked-in fixture.
+    // R0 guard: keep tests must not fall back to production DB files.
     testDbPath = path.join(TEST_DB_DIR, 'test_fsm_t25.db');
     const sourceDb = path.join(TEST_DB_DIR, 'test_dal_v2.db');
     
-    // Copy existing test DB (already has correct schema from prisma migrate)
+    // Copy checked-in fixture DB (already has correct schema from prisma migrate)
     if (fs.existsSync(sourceDb)) {
       fs.copyFileSync(sourceDb, testDbPath);
     } else {
-      // Fallback: copy the production DB
-      const prodDb = path.join(TEST_DB_DIR, 'nexus.db');
-      if (fs.existsSync(prodDb)) {
-        fs.copyFileSync(prodDb, testDbPath);
-      } else {
-        throw new Error('No source DB available for test setup');
-      }
+      throw new Error(`Missing checked-in test fixture DB: ${sourceDb}`);
     }
 
     const dbUrl = `file:${testDbPath}`;

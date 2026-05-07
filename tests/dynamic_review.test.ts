@@ -57,18 +57,14 @@ describe('T3.3: 动态审核派单引擎', () => {
       );
     `);
 
-    // 2. Copy existing test DB with V7.5 schema
+    // 2. Copy the checked-in test fixture DB with V7.5 schema.
+    // R0 guard: keep tests must not fall back to production DB files.
     testDbPath = path.join(TEST_DB_DIR, 'test_dynamic_review_t33.db');
     const sourceDb = path.join(TEST_DB_DIR, 'test_dal_v2.db');
     if (fs.existsSync(sourceDb)) {
       fs.copyFileSync(sourceDb, testDbPath);
     } else {
-      const prodDb = path.join(TEST_DB_DIR, 'nexus.db');
-      if (fs.existsSync(prodDb)) {
-        fs.copyFileSync(prodDb, testDbPath);
-      } else {
-        throw new Error('No source DB available for test setup');
-      }
+      throw new Error(`Missing checked-in test fixture DB: ${sourceDb}`);
     }
 
     prismaDal = new PrismaDAL(`file:${testDbPath}`);

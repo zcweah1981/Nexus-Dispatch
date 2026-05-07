@@ -43,21 +43,17 @@ function createTestDbUrl(): string {
   if (fs.existsSync(SOURCE_DB)) {
     fs.copyFileSync(SOURCE_DB, TEST_DB_PATH);
   } else {
-    const prodDb = path.join(TEST_DB_DIR, 'nexus.db');
-    if (fs.existsSync(prodDb)) {
-      fs.copyFileSync(prodDb, TEST_DB_PATH);
-    } else {
-      // 使用 prisma db push 创建干净的数据库
-      const dbUrl = `file:${TEST_DB_PATH}`;
-      execSync(
-        `npx prisma db push --skip-generate --accept-data-loss`,
-        {
-          cwd: path.join(__dirname, '..'),
-          env: { ...process.env, DATABASE_URL: dbUrl },
-          stdio: 'pipe',
-        },
-      );
-    }
+    // R0 guard: keep tests must not copy production DB files.
+    // If the fixture is unavailable, initialize a clean DB from Prisma schema instead.
+    const dbUrl = `file:${TEST_DB_PATH}`;
+    execSync(
+      `npx prisma db push --skip-generate --accept-data-loss`,
+      {
+        cwd: path.join(__dirname, '..'),
+        env: { ...process.env, DATABASE_URL: dbUrl },
+        stdio: 'pipe',
+      },
+    );
   }
   return `file:${TEST_DB_PATH}`;
 }

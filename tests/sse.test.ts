@@ -1,5 +1,6 @@
-import request from 'supertest';
-import { createServer, stateEmitter } from '../src/api/server';
+import http from 'http';
+import { AddressInfo } from 'net';
+import { createServer } from '../src/api/server';
 import DAL from '../src/db/dal';
 
 describe('SSE Stream API', () => {
@@ -53,44 +54,61 @@ describe('SSE Stream API', () => {
         dal.close();
     });
 
-    it('should push SSE events on DB state changes', (done) => {
+    it('should push SSE events on DB state changes and close the client cleanly', async () => {
         const expectedEvents = ['connected', 'task_created', 'run_created', 'run_status_updated'];
         const receivedEvents: string[] = [];
-        let reqEnded = false;
+        const server = http.createServer(app);
+        await new Promise<void>((resolve) => server.listen(0, resolve));
+        const port = (server.address() as AddressInfo).port;
 
-        const req = request(app)
-            .get('/v1/events/stream')
-            .set('Accept', 'text/event-stream')
-            .expect('Content-Type', /text\/event-stream/)
-            .buffer(false)
-            .parse((res: any, callback: any) => {
-                res.on('data', (chunk: Buffer) => {
-                    if (reqEnded) return;
-                    const str = chunk.toString();
-                    if (!str.startsWith('data: ')) return;
-                    
-                    const lines = str.split('\n');
-                    for (const line of lines) {
-                        if (line.startsWith('data: ')) {
-                            const data = JSON.parse(line.replace('data: ', ''));
-                            if (data.type !== 'ping') {
-                                receivedEvents.push(data.type);
+        let responseRef: http.IncomingMessage | undefined;
+        let requestRef: http.ClientRequest | undefined;
+        let timer: NodeJS.Timeout | undefined;
+
+        try {
+            await new Promise<void>((resolve, reject) => {
+                const cleanup = () => {
+                    if (timer) clearTimeout(timer);
+                    responseRef?.destroy();
+                    requestRef?.destroy();
+                };
+
+                timer = setTimeout(() => {
+                    cleanup();
+                    reject(new Error(`Timed out waiting for SSE events: ${receivedEvents.join(',')}`));
+                }, 3000);
+
+                requestRef = http.get(
+                    `http://127.0.0.1:${port}/v1/events/stream`,
+                    { headers: { Accept: 'text/event-stream' } },
+                    (res) => {
+                        responseRef = res;
+                        expect(res.headers['content-type']).toMatch(/text\/event-stream/);
+
+                        res.on('data', (chunk: Buffer) => {
+                            const lines = chunk.toString().split('\n');
+                            for (const line of lines) {
+                                if (!line.startsWith('data: ')) continue;
+                                const data = JSON.parse(line.replace('data: ', ''));
+                                if (data.type !== 'ping') {
+                                    receivedEvents.push(data.type);
+                                }
+                                if (receivedEvents.length === expectedEvents.length) {
+                                    expect(receivedEvents).toEqual(expectedEvents);
+                                    cleanup();
+                                    resolve();
+                                }
                             }
-                            
-                            if (receivedEvents.length === expectedEvents.length) {
-                                reqEnded = true;
-                                expect(receivedEvents).toEqual(expectedEvents);
-                                done();
-                            }
-                        }
-                    }
+                        });
+                    },
+                );
+                requestRef.on('error', (err) => {
+                    if (receivedEvents.length === expectedEvents.length) return;
+                    reject(err);
                 });
-                
-                // Simulate DB state changes
+
                 setTimeout(() => {
                     dal._createProjectAndWorker('proj-1', 'worker-1');
-                    
-                    // Task created
                     const taskId = dal.createTask({
                         project_id: 'proj-1',
                         title: 'Test SSE Task',
@@ -98,22 +116,18 @@ describe('SSE Stream API', () => {
                         lane: 'LANE_CODE',
                         max_retries: 3,
                         payload_schema: {},
-                        ext_meta: {}
+                        ext_meta: {},
                     });
-                    
-                    // Run created
                     const runId = dal.createRun({
                         task_id: taskId,
                         worker_id: 'worker-1',
-                        idempotency_key: 'sse-test-key'
+                        idempotency_key: 'sse-test-key',
                     });
-                    
-                    // Run status updated
                     dal.updateRunStatus(runId, 'success');
                 }, 100);
-            })
-            .end((err) => {
-                if (err && !reqEnded) done(err);
             });
+        } finally {
+            await new Promise<void>((resolve) => server.close(() => resolve()));
+        }
     });
 });
