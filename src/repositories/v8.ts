@@ -8,7 +8,7 @@ function stringifyJson(value: unknown): string | undefined {
 }
 
 function terminalEndedAt(status: string): Date | undefined {
-  return ['success', 'failed', 'cancelled'].includes(status) ? new Date() : undefined;
+  return ['success', 'failed', 'error', 'cancelled'].includes(status) ? new Date() : undefined;
 }
 
 export interface ProjectCreateInput {

@@ -29,6 +29,13 @@ export interface V8DaemonDispatchPayload {
     dialect: string;
   };
   run_id: string;
+  lease: V8RunLease;
+}
+
+export interface V8RunLease {
+  lease_token: string;
+  lease_ttl_ms: number;
+  lease_expires_at: string;
 }
 
 export interface V8DaemonWorkerDispatchResult {
@@ -39,6 +46,7 @@ export interface V8DaemonWorkerResult {
   project_id: string;
   task_id: string;
   worker_run_id?: string;
+  lease_token?: string;
   summary?: string;
   proof: Record<string, unknown>;
 }
@@ -53,6 +61,9 @@ export interface V8DaemonTickLoopOptions {
   project_id: string;
   workerClient?: V8DaemonWorkerClient;
   stepObserver?: (step: V8DaemonStepName) => void;
+  leaseTtlMs?: number;
+  staleRunMs?: number;
+  now?: () => Date;
 }
 
 export interface V8DaemonTickResult {
@@ -63,9 +74,12 @@ export interface V8DaemonTickResult {
   ingested_task_ids: string[];
   review_task_ids: string[];
   closeout: { archived_group_ids: string[]; group_summary_report_ids: string[] };
+  recovered_stale_task_ids: string[];
 }
 
 const TERMINAL_TASK_STATUSES = ['completed', 'blocked', 'dead_letter', 'cancelled'];
+const DEFAULT_LEASE_TTL_MS = 15 * 60 * 1000;
+const DEFAULT_STALE_RUN_MS = 30 * 60 * 1000;
 
 class NoopWorkerClient implements V8DaemonWorkerClient {
   async dispatch(): Promise<void> {}
@@ -86,13 +100,23 @@ function parseJsonObject(value: string | null): Record<string, unknown> {
   }
 }
 
+function mergeJsonObject(value: string | null, patch: Record<string, unknown>): string {
+  return json({ ...parseJsonObject(value), ...patch });
+}
+
 export class V8DaemonTickLoop {
   private readonly runtime: V8RuntimeApiService;
   private readonly workerClient: V8DaemonWorkerClient;
+  private readonly leaseTtlMs: number;
+  private readonly staleRunMs: number;
+  private readonly now: () => Date;
 
   constructor(private readonly options: V8DaemonTickLoopOptions) {
     this.runtime = new V8RuntimeApiService(options.prisma);
     this.workerClient = options.workerClient ?? new NoopWorkerClient();
+    this.leaseTtlMs = options.leaseTtlMs ?? DEFAULT_LEASE_TTL_MS;
+    this.staleRunMs = options.staleRunMs ?? DEFAULT_STALE_RUN_MS;
+    this.now = options.now ?? (() => new Date());
   }
 
   async tick(): Promise<V8DaemonTickResult> {
@@ -104,7 +128,11 @@ export class V8DaemonTickLoop {
       ingested_task_ids: [],
       review_task_ids: [],
       closeout: { archived_group_ids: [], group_summary_report_ids: [] },
+      recovered_stale_task_ids: [],
     };
+
+    const recovered = await this.recoverStaleRuns();
+    result.recovered_stale_task_ids = recovered.taskIds;
 
     const claimed = await this.runStep('claim', result.steps, () => this.claimReadyTasks());
     result.claimed_task_ids = claimed.taskIds;
@@ -140,9 +168,69 @@ export class V8DaemonTickLoop {
     }
   }
 
+  private async recoverStaleRuns(): Promise<{ taskIds: string[] }> {
+    const cutoff = new Date(this.now().getTime() - this.staleRunMs);
+    const staleRuns = await this.options.prisma.run.findMany({
+      where: {
+        project_id: this.options.project_id,
+        status: 'running',
+        started_at: { lt: cutoff },
+        task: { project_id: this.options.project_id, status: { in: ['running', 'dispatched'] } },
+      },
+      orderBy: [{ started_at: 'asc' }, { run_id: 'asc' }],
+      include: { task: true },
+    });
+
+    const recoveredTaskIds: string[] = [];
+    for (const run of staleRuns) {
+      const task = run.task;
+      if (!task) continue;
+      await this.runtime.updateRunStatus(this.options.project_id, run.run_id, 'error', {
+        error_stack: `stale_takeover: run exceeded ${this.staleRunMs}ms lease window`,
+        result_summary: run.result_summary ?? null,
+      });
+      await this.markTaskTakeoverAudit(task.id, task.ext_meta, {
+        previous_run_id: run.run_id,
+        previous_worker_run_id: run.worker_run_id,
+        takeover_at: this.now().toISOString(),
+      });
+      if (task.status === 'running') {
+        await transitionTask({ prisma: this.options.prisma }, {
+          project_id: this.options.project_id,
+          task_id: task.id,
+          event: 'retry',
+          proof: { source: 'v8_daemon_tick_loop', step: 'stale_takeover', previous_run_id: run.run_id },
+        });
+      } else {
+        await transitionTask({ prisma: this.options.prisma }, {
+          project_id: this.options.project_id,
+          task_id: task.id,
+          event: 'return_to_created',
+          proof: { source: 'v8_daemon_tick_loop', step: 'stale_takeover', previous_run_id: run.run_id },
+        });
+      }
+      await transitionTask({ prisma: this.options.prisma }, {
+        project_id: this.options.project_id,
+        task_id: task.id,
+        event: 'dispatch',
+        proof: { source: 'v8_daemon_tick_loop', step: 'stale_takeover_dispatch', previous_run_id: run.run_id },
+      });
+      recoveredTaskIds.push(task.id);
+    }
+    return { taskIds: Array.from(new Set(recoveredTaskIds)) };
+  }
+
+  private async markTaskTakeoverAudit(taskId: string, extMeta: string | null, staleTakeover: Record<string, unknown>): Promise<void> {
+    const taskTable = this.options.prisma.task;
+    await taskTable.updateMany({
+      where: { project_id: this.options.project_id, id: taskId },
+      data: { ext_meta: mergeJsonObject(extMeta, { stale_takeover: staleTakeover }) },
+    });
+  }
+
   private async claimReadyTasks(): Promise<{ count: number; details: string[]; taskIds: string[]; tasks: any[] }> {
     const tasks = await this.options.prisma.task.findMany({
-      where: { project_id: this.options.project_id, status: 'created' },
+      where: { project_id: this.options.project_id, status: { in: ['created', 'dispatched'] } },
       orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
     });
     const claimedTasks: any[] = [];
@@ -162,18 +250,29 @@ export class V8DaemonTickLoop {
         continue;
       }
 
-      await transitionTask({ prisma: this.options.prisma }, {
-        project_id: this.options.project_id,
-        task_id: task.id,
-        event: 'dispatch',
-        proof: { source: 'v8_daemon_tick_loop', step: 'claim' },
-      });
+      if (task.status === 'created') {
+        await transitionTask({ prisma: this.options.prisma }, {
+          project_id: this.options.project_id,
+          task_id: task.id,
+          event: 'dispatch',
+          proof: { source: 'v8_daemon_tick_loop', step: 'claim' },
+        });
+      }
       const claimed = await this.options.prisma.task.findFirstOrThrow({ where: { project_id: this.options.project_id, id: task.id } });
       claimedTasks.push(claimed);
       details.push(`claimed:${task.id}`);
     }
 
     return { count: claimedTasks.length, details, taskIds: claimedTasks.map((task) => task.id), tasks: claimedTasks };
+  }
+
+  private createLease(taskId: string): V8RunLease {
+    const issuedAt = this.now();
+    return {
+      lease_token: `${this.options.project_id}:${taskId}:${issuedAt.getTime()}:${Math.random().toString(36).slice(2)}`,
+      lease_ttl_ms: this.leaseTtlMs,
+      lease_expires_at: new Date(issuedAt.getTime() + this.leaseTtlMs).toISOString(),
+    };
   }
 
   private async dispatchClaimedTasks(tasks: any[]): Promise<{ count: number; details: string[]; taskIds: string[] }> {
@@ -201,14 +300,18 @@ export class V8DaemonTickLoop {
         continue;
       }
 
+      const lease = this.createLease(task.id);
       const run = await this.runtime.createRun(this.options.project_id, {
         task_id: task.id,
         agent_id: agent.id,
-        idempotency_key: `${this.options.project_id}:${task.id}:dispatch:${Date.now()}`,
+        idempotency_key: `${this.options.project_id}:${task.id}:dispatch:${lease.lease_token}`,
         status: 'created',
+        result_summary: json({ lease_token: lease.lease_token, lease_expires_at: lease.lease_expires_at }),
       });
 
-      await this.runtime.updateRunStatus(this.options.project_id, run.run_id, 'running', { result_summary: 'daemon dispatch started' });
+      await this.runtime.updateRunStatus(this.options.project_id, run.run_id, 'running', {
+        result_summary: json({ lease_token: lease.lease_token, lease_expires_at: lease.lease_expires_at, status: 'daemon dispatch started' }),
+      });
       await transitionTask({ prisma: this.options.prisma }, {
         project_id: this.options.project_id,
         task_id: task.id,
@@ -235,6 +338,7 @@ export class V8DaemonTickLoop {
             dialect: agent.dialect,
           },
           run_id: run.run_id,
+          lease,
         });
         const workerRunId = workerResult && 'worker_run_id' in workerResult ? workerResult.worker_run_id : undefined;
         if (workerRunId) {
@@ -275,19 +379,18 @@ export class V8DaemonTickLoop {
         details.push(`ignored-not-running:${workerResult.task_id}`);
         continue;
       }
-      const run = await this.options.prisma.run.findFirst({
-        where: { project_id: this.options.project_id, task_id: workerResult.task_id, status: 'running' },
-        orderBy: { started_at: 'desc' },
-      });
+      const run = await this.findActiveRunForWorkerResult(workerResult);
+      if (!run) {
+        details.push(`ignored-stale-lease:${workerResult.task_id}`);
+        continue;
+      }
 
-      if (run) {
-        await this.runtime.updateRunStatus(this.options.project_id, run.run_id, 'success', { result_summary: workerResult.summary ?? null });
-        if (workerResult.worker_run_id && run.worker_run_id !== workerResult.worker_run_id) {
-          await this.options.prisma.run.updateMany({
-            where: { project_id: this.options.project_id, run_id: run.run_id },
-            data: { worker_run_id: workerResult.worker_run_id },
-          });
-        }
+      await this.runtime.updateRunStatus(this.options.project_id, run.run_id, 'success', { result_summary: workerResult.summary ?? null });
+      if (workerResult.worker_run_id && run.worker_run_id !== workerResult.worker_run_id) {
+        await this.options.prisma.run.updateMany({
+          where: { project_id: this.options.project_id, run_id: run.run_id },
+          data: { worker_run_id: workerResult.worker_run_id },
+        });
       }
 
       await transitionTask({ prisma: this.options.prisma }, {
@@ -314,6 +417,7 @@ export class V8DaemonTickLoop {
           task_id: workerResult.task_id,
           result: workerResult.summary ?? 'completed',
           proof: workerResult.proof,
+          lease_token: workerResult.lease_token,
         },
       });
 
@@ -322,6 +426,29 @@ export class V8DaemonTickLoop {
     }
 
     return { count: ingestedTaskIds.length, details, taskIds: ingestedTaskIds };
+  }
+
+  private async findActiveRunForWorkerResult(workerResult: V8DaemonWorkerResult) {
+    const candidates = await this.options.prisma.run.findMany({
+      where: { project_id: this.options.project_id, task_id: workerResult.task_id, status: 'running' },
+      orderBy: [{ started_at: 'desc' }, { run_id: 'desc' }],
+    });
+    for (const run of candidates) {
+      const summary = parseJsonObject(run.result_summary);
+      const expectedLeaseToken = typeof summary.lease_token === 'string' ? summary.lease_token : undefined;
+      if (expectedLeaseToken && workerResult.lease_token !== expectedLeaseToken) continue;
+      if (workerResult.worker_run_id && run.worker_run_id && workerResult.worker_run_id !== run.worker_run_id) continue;
+      return run;
+    }
+    return null;
+  }
+
+  private async completeStandardTaskFromDaemon(taskId: string, proof: Record<string, unknown>): Promise<void> {
+    const taskTable = this.options.prisma.task;
+    await taskTable.updateMany({
+      where: { project_id: this.options.project_id, id: taskId, status: 'completion_pending' },
+      data: { status: 'completed', proof_data: json({ event: 'daemon_auto_complete', project_id: this.options.project_id, task_id: taskId, proof }) },
+    });
   }
 
   private async spawnReviewTasks(): Promise<{ count: number; details: string[]; reviewTaskIds: string[] }> {
@@ -335,11 +462,10 @@ export class V8DaemonTickLoop {
     for (const task of tasks) {
       const mode = task.acceptance_mode ?? 'standard';
       if (mode !== 'pm_audit') {
-        await transitionTask({ prisma: this.options.prisma }, {
-          project_id: this.options.project_id,
-          task_id: task.id,
-          event: 'auto_complete',
-          proof: { source: 'v8_daemon_tick_loop', step: 'review', reason: 'non_pm_audit' },
+        await this.completeStandardTaskFromDaemon(task.id, {
+          source: 'v8_daemon_tick_loop',
+          step: 'review',
+          reason: 'non_pm_audit',
         });
         details.push(`auto-completed:${task.id}`);
         continue;
