@@ -188,6 +188,40 @@ describe('V8-R3-T3 thaw current phase/group', () => {
     await expect(prisma.taskGroup.count({ where: { project_id: otherProject.id, group_id: 'v8-thaw-p1' } })).resolves.toBe(1);
   });
 
+
+  test('service blocks later phase thaw until previous group is complete and has sent group summary proof', async () => {
+    await thawV8CurrentPhase({ prisma, project_id: projectId, blueprint_id: blueprint.blueprint_id, phase_id: 'r3-p1' });
+
+    await expect(
+      thawV8CurrentPhase({ prisma, project_id: projectId, blueprint_id: blueprint.blueprint_id, phase_id: 'r3-p2' }),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'GROUP_SUMMARY_PROOF_REQUIRED' });
+
+    const group = await prisma.taskGroup.findFirstOrThrow({ where: { project_id: projectId, group_id: 'v8-thaw-p1' } });
+    await prisma.task.updateMany({ where: { project_id: projectId, task_group_id: group.id }, data: { status: 'completed' } });
+    await prisma.taskGroup.update({ where: { id: group.id }, data: { status: 'archived' } });
+
+    await expect(
+      thawV8CurrentPhase({ prisma, project_id: projectId, blueprint_id: blueprint.blueprint_id, phase_id: 'r3-p2' }),
+    ).rejects.toMatchObject({ statusCode: 409, code: 'GROUP_SUMMARY_PROOF_REQUIRED' });
+
+    await prisma.report.create({
+      data: {
+        project_id: projectId,
+        message_type: 'group_summary',
+        status: 'sent',
+        summary: 'R3 Phase 1 summary proof sent',
+        payload_json: JSON.stringify({ group_id: 'v8-thaw-p1', task_group_id: group.id, completed_tasks: 2 }),
+      },
+    });
+
+    const result = await thawV8CurrentPhase({ prisma, project_id: projectId, blueprint_id: blueprint.blueprint_id, phase_id: 'r3-p2' });
+    expect(result).toMatchObject({
+      phase_id: 'r3-p2',
+      group_id: 'v8-thaw-p2',
+      created_task_ids: ['v8-thaw-p2-t1'],
+    });
+  });
+
   test('Runtime API thaws current phase through service boundary and keeps route thin', async () => {
     const legacyDal = new DAL(path.join(tmpDir, 'legacy-api.db'));
     const prismaDal = new PrismaDAL(`file:${dbPath}`);

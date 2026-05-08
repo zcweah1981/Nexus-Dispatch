@@ -64,6 +64,39 @@ function taskExtMeta(blueprintId: string, phase: V8BlueprintPhase, task: V8Bluep
   };
 }
 
+async function assertPriorPhaseSummaryProof(input: ThawV8CurrentPhaseInput, phases: V8BlueprintPhase[], phase: V8BlueprintPhase): Promise<void> {
+  const phaseIndex = phases.findIndex((candidate) => candidate.phase_id === phase.phase_id);
+  if (phaseIndex <= 0) return;
+
+  const priorPhase = phases[phaseIndex - 1];
+  const priorGroup = await input.prisma.taskGroup.findFirst({
+    where: { project_id: input.project_id, group_id: priorPhase.group_id },
+    select: { id: true, status: true },
+  });
+  const sentSummary = priorGroup
+    ? await input.prisma.report.findFirst({
+      where: {
+        project_id: input.project_id,
+        message_type: 'group_summary',
+        status: 'sent',
+        OR: [
+          { payload_json: { contains: `"group_id":"${priorPhase.group_id}"` } },
+          { payload_json: { contains: `"task_group_id":"${priorGroup.id}"` } },
+        ],
+      },
+      select: { id: true },
+    })
+    : null;
+
+  if (!priorGroup || priorGroup.status !== 'archived' || !sentSummary) {
+    throw new V8BlueprintThawError(409, 'GROUP_SUMMARY_PROOF_REQUIRED', 'Previous group must be archived and have sent group_summary proof before thawing a later phase', {
+      required_group_id: priorPhase.group_id,
+      required_group_status: 'archived',
+      required_report: { message_type: 'group_summary', status: 'sent' },
+    });
+  }
+}
+
 /**
  * Explicitly thaw one V8 blueprint phase/group into runtime TaskGroup + Task rows.
  *
@@ -91,6 +124,7 @@ export async function thawV8CurrentPhase(input: ThawV8CurrentPhaseInput): Promis
 
   const blueprint = parseV8Blueprint(JSON.parse(stored.schema_json));
   const phase = findPhase(blueprint.phases, input);
+  await assertPriorPhaseSummaryProof(input, blueprint.phases, phase);
 
   return input.prisma.$transaction(async (tx) => {
     let group = await tx.taskGroup.findFirst({
