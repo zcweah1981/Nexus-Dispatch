@@ -184,6 +184,33 @@ export class TaskDependencyRepository {
   }
 }
 
+export interface TaskGroupCloseoutInput {
+  ext_meta?: unknown;
+}
+
+export class TaskGroupRepository {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async get(projectId: string, taskGroupId: string) {
+    return this.prisma.taskGroup.findFirst({ where: { id: taskGroupId, project_id: projectId } });
+  }
+
+  async archive(projectId: string, taskGroupId: string, input?: TaskGroupCloseoutInput) {
+    const group = await this.get(projectId, taskGroupId);
+    if (!group) throw new Error(`TaskGroup ${taskGroupId} not found in project ${projectId}`);
+
+    const updated = await this.prisma.taskGroup.updateMany({
+      where: { id: taskGroupId, project_id: projectId },
+      data: {
+        status: 'archived',
+        ...(input?.ext_meta !== undefined ? { ext_meta: stringifyJson(input.ext_meta) } : {}),
+      },
+    });
+    if (updated.count !== 1) throw new Error(`TaskGroup ${taskGroupId} archive failed in project ${projectId}`);
+    return this.get(projectId, taskGroupId);
+  }
+}
+
 export interface RunCreateInput {
   run_id?: string;
   task_id: string;

@@ -9,6 +9,7 @@ import {
   RunRepository,
   RunStatusUpdateInput,
   TaskCreateInput,
+  TaskGroupRepository,
   TaskRepository,
 } from '../repositories/v8';
 
@@ -35,12 +36,14 @@ function asNotFound(error: unknown, message: string): never {
 export class V8RuntimeApiService {
   private readonly projects: ProjectRepository;
   private readonly tasks: TaskRepository;
+  private readonly taskGroups: TaskGroupRepository;
   private readonly runs: RunRepository;
   private readonly reports: ReportRepository;
 
   constructor(private readonly prisma: PrismaClient) {
     this.projects = new ProjectRepository(prisma);
     this.tasks = new TaskRepository(prisma);
+    this.taskGroups = new TaskGroupRepository(prisma);
     this.runs = new RunRepository(prisma);
     this.reports = new ReportRepository(prisma);
   }
@@ -92,6 +95,14 @@ export class V8RuntimeApiService {
       return await advanceV8Phase({ prisma: this.prisma, ...input });
     } catch (error) {
       return asNotFound(error, `Blueprint phase could not advance in project ${input.project_id}`);
+    }
+  }
+
+  async archiveTaskGroup(projectId: string, taskGroupId: string, input?: { ext_meta?: unknown }) {
+    try {
+      return await this.taskGroups.archive(projectId, taskGroupId, input);
+    } catch (error) {
+      return asNotFound(error, `TaskGroup '${taskGroupId}' not found in project '${projectId}'`);
     }
   }
 
