@@ -1,4 +1,5 @@
 import { PrismaClient } from '@prisma/client';
+import { thawV8CurrentPhase, V8BlueprintThawError } from '../engine/v8_blueprint_thaw';
 import {
   ProjectCreateInput,
   ProjectRepository,
@@ -25,6 +26,9 @@ export class V8RuntimeApiError extends Error {
 
 function asNotFound(error: unknown, message: string): never {
   if (error instanceof V8RuntimeApiError) throw error;
+  if (error instanceof V8BlueprintThawError) {
+    throw new V8RuntimeApiError(error.statusCode, error.code, error.message, error.details);
+  }
   throw new V8RuntimeApiError(404, 'NOT_FOUND', message, { cause: error instanceof Error ? error.message : String(error) });
 }
 
@@ -71,6 +75,15 @@ export class V8RuntimeApiService {
     const task = await this.tasks.get(projectId, taskId);
     if (!task) throw new V8RuntimeApiError(404, 'NOT_FOUND', `Task '${taskId}' not found in project '${projectId}'`);
     return task;
+  }
+
+  async thawCurrentPhase(input: { project_id: string; blueprint_id: string; phase_id?: string; group_id?: string }) {
+    await this.getProject(input.project_id);
+    try {
+      return await thawV8CurrentPhase({ prisma: this.prisma, ...input });
+    } catch (error) {
+      return asNotFound(error, `Blueprint phase/group could not be thawed in project ${input.project_id}`);
+    }
   }
 
   async createRun(projectId: string, input: RunCreateInput) {

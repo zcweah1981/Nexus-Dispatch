@@ -97,7 +97,7 @@ model ProjectBlueprint {
 model TaskGroup {
   id          String   @id @default(uuid())
   project_id  String?  // V8 project scope; nullable for V7.5 compatibility
-  group_id    String   @unique // user-facing group key, e.g. 'nexus-v8-r1'
+  group_id    String   // user-facing group key, project-scoped for V8 thaw/isolation
   name        String
   description String?
   status      String   @default("active") // active, running, archived, cancelled
@@ -109,6 +109,7 @@ model TaskGroup {
   project     Project? @relation(fields: [project_id], references: [id], onDelete: Cascade)
   tasks       Task[]
 
+  @@unique([project_id, group_id])
   @@index([project_id, status])
   @@map("task_groups")
 }

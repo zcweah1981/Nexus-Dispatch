@@ -24,6 +24,7 @@ import {
   taskCreateSchema,
   taskStatusUpdateSchema,
   runtimeProjectCreateSchema,
+  runtimeBlueprintThawCurrentPhaseSchema,
   runtimeTaskCreateSchema,
   runtimeRunCreateSchema,
   runtimeRunStatusUpdateSchema,
@@ -113,6 +114,27 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
       return res.status(200).json({ task });
     } catch (error: any) {
       return sendRuntimeError(res, error, 'Failed to get runtime task');
+    }
+  });
+
+  router.post('/runtime/blueprints/thaw-current-phase', validateBody('runtimeBlueprintThawCurrentPhase', runtimeBlueprintThawCurrentPhaseSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const result = await service.thawCurrentPhase(req.body);
+      stateEmitter.emit('state_change', {
+        type: 'blueprint_phase_thawed',
+        data: {
+          project_id: result.project_id,
+          blueprint_id: result.blueprint_id,
+          phase_id: result.phase_id,
+          group_id: result.group_id,
+          created_task_ids: result.created_task_ids,
+        },
+      });
+      return res.status(result.created_task_ids.length > 0 || result.created_group ? 201 : 200).json({ result });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to thaw runtime blueprint phase');
     }
   });
 

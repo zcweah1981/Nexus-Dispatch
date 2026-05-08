@@ -311,8 +311,14 @@ export class PrismaDAL {
 
   // ─── TaskGroup 操作 ─────────────────────────────────────────
 
-  async getTaskGroup(groupId: string) {
-    return await this.prisma.taskGroup.findUnique({ where: { group_id: groupId } });
+  async getTaskGroup(groupId: string, projectId?: string) {
+    if (projectId) {
+      return await this.prisma.taskGroup.findFirst({ where: { group_id: groupId, project_id: projectId } });
+    }
+    return await this.prisma.taskGroup.findFirst({
+      where: { group_id: groupId },
+      orderBy: { created_at: 'desc' },
+    });
   }
 
   async createTaskGroup(data: { group_id: string; name: string; description?: string; project_id?: string | null }) {
@@ -614,8 +620,8 @@ export class PrismaDAL {
     groupId: string,
     projectId: string,
   ): Promise<GroupCompletionResult> {
-    const group = await this.prisma.taskGroup.findUnique({
-      where: { group_id: groupId },
+    const group = await this.prisma.taskGroup.findFirst({
+      where: { group_id: groupId, OR: [{ project_id: projectId }, { project_id: null }] },
     });
     if (!group) {
       throw new Error(`TaskGroup ${groupId} not found`);
@@ -665,8 +671,12 @@ export class PrismaDAL {
       return null;
     }
 
+    const groupToArchive = await this.prisma.taskGroup.findFirstOrThrow({
+      where: { group_id: groupId, OR: [{ project_id: projectId }, { project_id: null }] },
+      select: { id: true },
+    });
     const group = await this.prisma.taskGroup.update({
-      where: { group_id: groupId },
+      where: { id: groupToArchive.id },
       data: { status: 'archived' },
     });
 
@@ -689,8 +699,8 @@ export class PrismaDAL {
     groupId: string,
     maxTasks?: number,
   ): Promise<string[]> {
-    const group = await this.prisma.taskGroup.findUnique({
-      where: { group_id: groupId },
+    const group = await this.prisma.taskGroup.findFirst({
+      where: { group_id: groupId, project_id: projectId },
     });
     if (!group) {
       throw new Error(`TaskGroup ${groupId} not found`);
@@ -773,12 +783,13 @@ export class PrismaDAL {
     if (!nextPhase.tasks || nextPhase.tasks.length === 0) return [];
 
     // 3. 创建或复用 TaskGroup
-    let group = await this.prisma.taskGroup.findUnique({
-      where: { group_id: nextPhase.group_id },
+    let group = await this.prisma.taskGroup.findFirst({
+      where: { group_id: nextPhase.group_id, project_id: projectId },
     });
     if (!group) {
       group = await this.prisma.taskGroup.create({
         data: {
+          project_id: projectId,
           group_id: nextPhase.group_id,
           name: nextPhase.name,
           description: `Auto-thawed from phase ${nextPhase.phase_id}`,
