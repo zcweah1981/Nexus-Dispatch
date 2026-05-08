@@ -1,5 +1,5 @@
 import { PrismaClient } from '@prisma/client';
-import { thawV8CurrentPhase, V8BlueprintThawError } from '../engine/v8_blueprint_thaw';
+import { advanceV8Phase, thawV8CurrentPhase, V8BlueprintThawError } from '../engine/v8_blueprint_thaw';
 import {
   ProjectCreateInput,
   ProjectRepository,
@@ -83,6 +83,15 @@ export class V8RuntimeApiService {
       return await thawV8CurrentPhase({ prisma: this.prisma, ...input });
     } catch (error) {
       return asNotFound(error, `Blueprint phase/group could not be thawed in project ${input.project_id}`);
+    }
+  }
+
+  async advancePhase(input: { project_id: string; blueprint_id: string; from_phase_id?: string; from_group_id?: string }) {
+    await this.getProject(input.project_id);
+    try {
+      return await advanceV8Phase({ prisma: this.prisma, ...input });
+    } catch (error) {
+      return asNotFound(error, `Blueprint phase could not advance in project ${input.project_id}`);
     }
   }
 

@@ -25,6 +25,7 @@ import {
   taskStatusUpdateSchema,
   runtimeProjectCreateSchema,
   runtimeBlueprintThawCurrentPhaseSchema,
+  runtimeBlueprintAdvancePhaseSchema,
   runtimeTaskCreateSchema,
   runtimeRunCreateSchema,
   runtimeRunStatusUpdateSchema,
@@ -135,6 +136,28 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
       return res.status(result.created_task_ids.length > 0 || result.created_group ? 201 : 200).json({ result });
     } catch (error: any) {
       return sendRuntimeError(res, error, 'Failed to thaw runtime blueprint phase');
+    }
+  });
+
+  router.post('/runtime/blueprints/advance-phase', validateBody('runtimeBlueprintAdvancePhase', runtimeBlueprintAdvancePhaseSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const result = await service.advancePhase(req.body);
+      if (!result) return res.status(204).send();
+      stateEmitter.emit('state_change', {
+        type: 'blueprint_phase_advanced',
+        data: {
+          project_id: result.project_id,
+          blueprint_id: result.blueprint_id,
+          phase_id: result.phase_id,
+          group_id: result.group_id,
+          created_task_ids: result.created_task_ids,
+        },
+      });
+      return res.status(result.created_task_ids.length > 0 || result.created_group ? 201 : 200).json({ result });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to advance runtime blueprint phase');
     }
   });
 

@@ -208,6 +208,20 @@ export const runtimeBlueprintThawCurrentPhaseSchema = {
   additionalProperties: false,
 } as const;
 
+export const runtimeBlueprintAdvancePhaseSchema = {
+  $id: 'runtimeBlueprintAdvancePhase',
+  type: 'object',
+  required: ['project_id', 'blueprint_id'],
+  anyOf: [{ required: ['from_phase_id'] }, { required: ['from_group_id'] }],
+  properties: {
+    project_id:    { type: 'string', minLength: 1 },
+    blueprint_id:  { type: 'string', minLength: 1 },
+    from_phase_id: { type: 'string', minLength: 1 },
+    from_group_id: { type: 'string', minLength: 1 },
+  },
+  additionalProperties: false,
+} as const;
+
 export const runtimeTaskCreateSchema = {
   $id: 'runtimeTaskCreate',
   type: 'object',

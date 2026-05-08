@@ -255,4 +255,80 @@ describe('V8-R3-T3 thaw current phase/group', () => {
       legacyDal.close();
     }
   });
+
+  test('Runtime phase advance API advances exactly one next phase after group summary proof and ends with 204', async () => {
+    const legacyDal = new DAL(path.join(tmpDir, 'legacy-advance-api.db'));
+    const prismaDal = new PrismaDAL(`file:${dbPath}`);
+    await prismaDal.initPragmas();
+    const app = createServer(legacyDal, TOKEN, prismaDal);
+
+    try {
+      await request(app)
+        .post('/api/v1/runtime/blueprints/thaw-current-phase')
+        .set('Authorization', `Bearer ${TOKEN}`)
+        .send({ project_id: projectId, blueprint_id: blueprint.blueprint_id, phase_id: 'r3-p1' })
+        .expect(201);
+
+      await request(app)
+        .post('/api/v1/runtime/blueprints/advance-phase')
+        .set('Authorization', `Bearer ${TOKEN}`)
+        .send({ project_id: projectId, blueprint_id: blueprint.blueprint_id, from_phase_id: 'r3-p1' })
+        .expect(409)
+        .expect((response) => {
+          expect(response.body.code).toBe('GROUP_SUMMARY_PROOF_REQUIRED');
+        });
+
+      const group = await prisma.taskGroup.findFirstOrThrow({ where: { project_id: projectId, group_id: 'v8-thaw-p1' } });
+      await prisma.task.updateMany({ where: { project_id: projectId, task_group_id: group.id }, data: { status: 'completed' } });
+      await prisma.taskGroup.update({ where: { id: group.id }, data: { status: 'archived' } });
+      await prisma.report.create({
+        data: {
+          project_id: projectId,
+          message_type: 'group_summary',
+          status: 'sent',
+          summary: 'R3 Phase 1 summary proof sent',
+          payload_json: JSON.stringify({ group_id: 'v8-thaw-p1', task_group_id: group.id, completed_tasks: 2 }),
+        },
+      });
+
+      const advance = await request(app)
+        .post('/api/v1/runtime/blueprints/advance-phase')
+        .set('Authorization', `Bearer ${TOKEN}`)
+        .send({ project_id: projectId, blueprint_id: blueprint.blueprint_id, from_phase_id: 'r3-p1' })
+        .expect(201);
+      expect(advance.body.result).toMatchObject({
+        project_id: projectId,
+        blueprint_id: blueprint.blueprint_id,
+        phase_id: 'r3-p2',
+        group_id: 'v8-thaw-p2',
+        created_task_ids: ['v8-thaw-p2-t1'],
+      });
+
+      await request(app)
+        .post('/api/v1/runtime/blueprints/advance-phase')
+        .set('Authorization', `Bearer ${TOKEN}`)
+        .send({ project_id: projectId, blueprint_id: blueprint.blueprint_id, from_phase_id: 'r3-p1' })
+        .expect(200)
+        .expect((response) => {
+          expect(response.body.result).toMatchObject({ phase_id: 'r3-p2', created_task_ids: [], skipped_task_ids: ['v8-thaw-p2-t1'] });
+        });
+
+      await request(app)
+        .post('/api/v1/runtime/blueprints/advance-phase')
+        .set('Authorization', `Bearer ${TOKEN}`)
+        .send({ project_id: projectId, blueprint_id: blueprint.blueprint_id, from_phase_id: 'r3-p2' })
+        .expect(204);
+
+      const routeSource = fs.readFileSync(path.join(repoRoot, 'src/api/routes.ts'), 'utf8');
+      const routeSection = routeSource.slice(
+        routeSource.indexOf("router.post('/runtime/blueprints/advance-phase'"),
+        routeSource.indexOf("router.post('/runtime/runs'"),
+      );
+      expect(routeSection).toContain('service.advancePhase');
+      expect(routeSection).not.toMatch(/prisma\.task\.create|prisma\.taskGroup\.create|taskDependency\.create|better-sqlite3|sqlite3|data\/nexus\.db|\$queryRaw|\$executeRaw/);
+    } finally {
+      await prismaDal.close();
+      legacyDal.close();
+    }
+  });
 });

@@ -34,24 +34,35 @@ export interface ThawV8CurrentPhaseResult {
   dependency_count: number;
 }
 
+export interface AdvanceV8PhaseInput {
+  prisma: PrismaClient;
+  project_id: string;
+  blueprint_id: string;
+  from_phase_id?: string;
+  from_group_id?: string;
+}
+
+export type AdvanceV8PhaseResult = ThawV8CurrentPhaseResult | null;
+
 function json(value: unknown): string | undefined {
   if (value === undefined || value === null) return undefined;
   return JSON.stringify(value);
 }
 
-function findPhase(phases: V8BlueprintPhase[], input: ThawV8CurrentPhaseInput): V8BlueprintPhase {
-  const phase = input.phase_id
-    ? phases.find((candidate) => candidate.phase_id === input.phase_id)
-    : input.group_id
-      ? phases.find((candidate) => candidate.group_id === input.group_id)
+function findPhaseBySelector(phases: V8BlueprintPhase[], selector: { phase_id?: string; group_id?: string }): V8BlueprintPhase {
+  const phase = selector.phase_id
+    ? phases.find((candidate) => candidate.phase_id === selector.phase_id)
+    : selector.group_id
+      ? phases.find((candidate) => candidate.group_id === selector.group_id)
       : phases[0];
   if (!phase) {
-    throw new V8BlueprintThawError(404, 'NOT_FOUND', 'Requested blueprint phase/group was not found', {
-      phase_id: input.phase_id,
-      group_id: input.group_id,
-    });
+    throw new V8BlueprintThawError(404, 'NOT_FOUND', 'Requested blueprint phase/group was not found', selector);
   }
   return phase;
+}
+
+function findPhase(phases: V8BlueprintPhase[], input: ThawV8CurrentPhaseInput): V8BlueprintPhase {
+  return findPhaseBySelector(phases, input);
 }
 
 function taskExtMeta(blueprintId: string, phase: V8BlueprintPhase, task: V8BlueprintTask): Record<string, unknown> {
@@ -103,11 +114,7 @@ async function assertPriorPhaseSummaryProof(input: ThawV8CurrentPhaseInput, phas
  * R3-T3 scope: generate only the selected current phase, keep tasks in `created`
  * so dispatch/status movement remains governed by the V8 Runtime API/FSM service.
  */
-export async function thawV8CurrentPhase(input: ThawV8CurrentPhaseInput): Promise<ThawV8CurrentPhaseResult> {
-  if (!input.phase_id && !input.group_id) {
-    throw new V8BlueprintThawError(400, 'BAD_REQUEST', 'phase_id or group_id is required');
-  }
-
+async function loadFrozenBlueprint(input: { prisma: PrismaClient; project_id: string; blueprint_id: string }) {
   const stored = await input.prisma.projectBlueprint.findFirst({
     where: {
       project_id: input.project_id,
@@ -121,8 +128,15 @@ export async function thawV8CurrentPhase(input: ThawV8CurrentPhaseInput): Promis
       blueprint_id: input.blueprint_id,
     });
   }
+  return parseV8Blueprint(JSON.parse(stored.schema_json));
+}
 
-  const blueprint = parseV8Blueprint(JSON.parse(stored.schema_json));
+export async function thawV8CurrentPhase(input: ThawV8CurrentPhaseInput): Promise<ThawV8CurrentPhaseResult> {
+  if (!input.phase_id && !input.group_id) {
+    throw new V8BlueprintThawError(400, 'BAD_REQUEST', 'phase_id or group_id is required');
+  }
+
+  const blueprint = await loadFrozenBlueprint(input);
   const phase = findPhase(blueprint.phases, input);
   await assertPriorPhaseSummaryProof(input, blueprint.phases, phase);
 
@@ -228,5 +242,34 @@ export async function thawV8CurrentPhase(input: ThawV8CurrentPhaseInput): Promis
       skipped_task_ids: skippedTaskIds,
       dependency_count: dependencyCount,
     };
+  });
+}
+
+/**
+ * Advance from one thawed phase/group to the next blueprint phase.
+ *
+ * R3-T5 scope: this is a thin service helper over explicit thaw. It discovers the
+ * next phase inside the same frozen blueprint, reuses the R3 group-summary proof
+ * gate in `thawV8CurrentPhase`, and returns null when there is no later phase.
+ */
+export async function advanceV8Phase(input: AdvanceV8PhaseInput): Promise<AdvanceV8PhaseResult> {
+  if (!input.from_phase_id && !input.from_group_id) {
+    throw new V8BlueprintThawError(400, 'BAD_REQUEST', 'from_phase_id or from_group_id is required');
+  }
+
+  const blueprint = await loadFrozenBlueprint(input);
+  const currentPhase = findPhaseBySelector(blueprint.phases, {
+    phase_id: input.from_phase_id,
+    group_id: input.from_group_id,
+  });
+  const currentIndex = blueprint.phases.findIndex((phase) => phase.phase_id === currentPhase.phase_id);
+  const nextPhase = blueprint.phases[currentIndex + 1];
+  if (!nextPhase) return null;
+
+  return thawV8CurrentPhase({
+    prisma: input.prisma,
+    project_id: input.project_id,
+    blueprint_id: input.blueprint_id,
+    phase_id: nextPhase.phase_id,
   });
 }
