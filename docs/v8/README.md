@@ -18,3 +18,4 @@
 - `src/repositories/v8.ts` 是 R1 Repository 主线；R2+ Runtime API / FSM Controller 必须基于该 Repository 边界继续。
 - `src/db/dal.ts`、`data/nexus.db` 与 `tests/legacy/**` 进入 legacy DAL 只读适配 / archive 边界，不得参与 V8 新主流程。
 - 详细边界见 `docs/v8/legacy-dal-boundary.md` 与 `docs/v8/prisma-schema-boundary.md`。
+- R2 FSM 状态枚举与 transition matrix 位于 `src/fsm/v8_state_matrix.ts`；legacy 状态映射只允许出现在 `docs/v8/legacy-status-mapping.md`。
