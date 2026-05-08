@@ -133,6 +133,7 @@ export interface Artifact {
  */
 export interface TaskDependency {
   id: string;
+  project_id: string;
   task_id: string;
   depends_on_id: string;
   dependency_type: DependencyType;

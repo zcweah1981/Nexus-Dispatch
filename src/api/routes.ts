@@ -48,7 +48,7 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
       return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
     }
     const { project_id, title, objective, lane_required, task_group_id,
-            payload, payload_schema, acceptance_criteria, reviewer,
+            payload, payload_schema, acceptance_criteria, dependencies, reviewer,
             acceptance_mode, max_retries } = req.body;
 
     try {
@@ -68,19 +68,45 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
         resolvedTaskGroupId = group.id;
       }
 
-      const task = await prismaDal.createTask({
-        project_id,
-        title,
-        objective,
-        lane_required,
-        status: 'created',
-        ...(resolvedTaskGroupId && { task_group_id: resolvedTaskGroupId }),
-        ...(payload && { payload: JSON.stringify(payload) }),
-        ...(payload_schema && { payload_schema: JSON.stringify(payload_schema) }),
-        ...(acceptance_criteria && { acceptance_criteria: JSON.stringify(acceptance_criteria) }),
-        ...(reviewer && { reviewer }),
-        ...(acceptance_mode && { acceptance_mode }),
-        ...(max_retries !== undefined && { max_retries }),
+      const dependencyIds: string[] = dependencies ?? [];
+      if (dependencyIds.length > 0) {
+        const dependencyTasks = await prismaDal.client.task.findMany({
+          where: { project_id, id: { in: dependencyIds } },
+          select: { id: true },
+        });
+        if (dependencyTasks.length !== dependencyIds.length) {
+          return sendError(res, 400, 'Task dependencies must belong to the same project', ErrorCodes.BAD_REQUEST);
+        }
+      }
+
+      const task = await prismaDal.client.$transaction(async (tx) => {
+        const created = await tx.task.create({
+          data: {
+            project_id,
+            title,
+            objective,
+            lane_required,
+            status: 'created',
+            ...(resolvedTaskGroupId && { task_group_id: resolvedTaskGroupId }),
+            ...(payload && { payload: JSON.stringify(payload) }),
+            ...(payload_schema && { payload_schema: JSON.stringify(payload_schema) }),
+            ...(acceptance_criteria && { acceptance_criteria: JSON.stringify(acceptance_criteria) }),
+            ...(reviewer && { reviewer }),
+            ...(acceptance_mode && { acceptance_mode }),
+            ...(max_retries !== undefined && { max_retries }),
+          },
+        });
+        if (dependencyIds.length > 0) {
+          await tx.taskDependency.createMany({
+            data: dependencyIds.map((dependsOnId) => ({
+              project_id,
+              task_id: created.id,
+              depends_on_id: dependsOnId,
+              dependency_type: 'blocks',
+            })),
+          });
+        }
+        return created;
       });
 
       stateEmitter.emit('state_change', {
@@ -113,6 +139,7 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
         orderBy: { created_at: 'asc' },
         include: {
           outgoing_deps: {
+            where: projectId ? { project_id: projectId } : undefined,
             select: { depends_on_id: true },
           },
         },
@@ -130,11 +157,11 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
         // Check each dependency — all must be 'completed'
         const depIds = task.outgoing_deps.map((d: any) => d.depends_on_id);
         const depTasks = await prismaDal.client.task.findMany({
-          where: { id: { in: depIds } },
+          where: { id: { in: depIds }, project_id: task.project_id },
           select: { id: true, status: true },
         });
 
-        const allCompleted = depTasks.every((d: any) => d.status === 'completed');
+        const allCompleted = depTasks.length === depIds.length && depTasks.every((d: any) => d.status === 'completed');
         if (allCompleted) {
           dispatchable.push(task);
         }
@@ -241,6 +268,7 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
           payload: t.payload,
           payload_schema: t.payload_schema,
           acceptance_criteria: t.acceptance_criteria,
+          dependencies: t.dependencies,
           reviewer: t.reviewer,
           acceptance_mode: t.acceptance_mode,
         })),

@@ -21,9 +21,10 @@ model Project {
   created_at     DateTime @default(now())
 
   agents          Agent[]
-  taskGroups      TaskGroup[]
-  tasks           Task[]
-  runs            Run[]
+  taskGroups        TaskGroup[]
+  tasks             Task[]
+  taskDependencies  TaskDependency[]
+  runs              Run[]
   artifacts       Artifact[]
   blueprints      ProjectBlueprint[]
   reviews         Review[]
@@ -155,15 +156,18 @@ model Task {
 // ─── TaskDependency（DAG 拓扑边） ────────────────────────────
 model TaskDependency {
   id              String   @id @default(uuid())
+  project_id      String
   task_id         String   // source task: this task depends on depends_on_id
   depends_on_id   String   // target task that must complete first
   dependency_type String   @default("blocks") // blocks, requires, related
   created_at      DateTime @default(now())
 
+  project         Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
   source          Task     @relation("TaskDepSource", fields: [task_id], references: [id], onDelete: Cascade)
   target          Task     @relation("TaskDepTarget", fields: [depends_on_id], references: [id], onDelete: Cascade)
 
-  @@unique([task_id, depends_on_id])
+  @@unique([project_id, task_id, depends_on_id])
+  @@index([project_id])
   @@index([task_id])
   @@index([depends_on_id])
   @@map("task_dependencies")

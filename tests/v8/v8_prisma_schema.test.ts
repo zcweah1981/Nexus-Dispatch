@@ -51,11 +51,15 @@ describe('V8-R1 Prisma schema contract', () => {
   });
 
   test('V8 reports, reviews, cronjobs, runs, artifacts are project-scoped and traceable', () => {
-    for (const model of ['Review', 'Report', 'ProjectCronjob']) {
+    for (const model of ['TaskDependency', 'Review', 'Report', 'ProjectCronjob']) {
       const block = modelBlock(schema, model);
       expect(block).toMatch(/project_id\s+String/);
       expect(block).toContain('@@index([project_id');
     }
+
+    const dependency = modelBlock(schema, 'TaskDependency');
+    expect(dependency).toContain('@@unique([project_id, task_id, depends_on_id])');
+    expect(dependency).not.toContain('@@unique([task_id, depends_on_id])');
 
     const run = modelBlock(schema, 'Run');
     expect(run).toMatch(/project_id\s+String\?/);

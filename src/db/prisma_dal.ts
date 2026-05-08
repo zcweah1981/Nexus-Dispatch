@@ -23,6 +23,7 @@ export interface InjectPhaseTaskInput {
   payload?: Record<string, unknown>;
   payload_schema?: Record<string, unknown>;
   acceptance_criteria?: string[];
+  dependencies?: string[];
   reviewer?: string;
   acceptance_mode?: string;
 }
@@ -314,9 +315,10 @@ export class PrismaDAL {
     return await this.prisma.taskGroup.findUnique({ where: { group_id: groupId } });
   }
 
-  async createTaskGroup(data: { group_id: string; name: string; description?: string }) {
+  async createTaskGroup(data: { group_id: string; name: string; description?: string; project_id?: string | null }) {
     return await this.prisma.taskGroup.create({
       data: {
+        project_id: data.project_id ?? null,
         group_id: data.group_id,
         name: data.name,
         description: data.description,
@@ -373,10 +375,23 @@ export class PrismaDAL {
       throw new Error(`Project ${projectId} not found`);
     }
 
-    // 2. 校验 task group 存在
-    const group = await this.prisma.taskGroup.findUnique({ where: { group_id: groupId } });
+    // 2. 校验 task group 存在且属于当前 project
+    const group = await this.prisma.taskGroup.findFirst({
+      where: { group_id: groupId, OR: [{ project_id: projectId }, { project_id: null }] },
+    });
     if (!group) {
-      throw new Error(`TaskGroup ${groupId} not found`);
+      throw new Error(`TaskGroup ${groupId} not found in project ${projectId}`);
+    }
+
+    const dependencyIds = Array.from(new Set(tasks.flatMap((t) => t.dependencies ?? [])));
+    if (dependencyIds.length > 0) {
+      const dependencyTasks = await this.prisma.task.findMany({
+        where: { project_id: projectId, id: { in: dependencyIds } },
+        select: { id: true },
+      });
+      if (dependencyTasks.length !== dependencyIds.length) {
+        throw new Error('Task dependencies must belong to the same project');
+      }
     }
 
     // 3. Interactive transaction：原子批量创建
@@ -398,6 +413,16 @@ export class PrismaDAL {
             acceptance_mode: t.acceptance_mode ?? null,
           },
         });
+        if (t.dependencies?.length) {
+          await tx.taskDependency.createMany({
+            data: t.dependencies.map((dependsOnId) => ({
+              project_id: projectId,
+              task_id: task.id,
+              depends_on_id: dependsOnId,
+              dependency_type: 'blocks',
+            })),
+          });
+        }
         ids.push(task.id);
       }
       return ids;

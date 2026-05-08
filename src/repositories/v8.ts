@@ -142,6 +142,48 @@ export class TaskRepository {
   }
 }
 
+export interface TaskDependencyCreateInput {
+  id?: string;
+  task_id: string;
+  depends_on_id: string;
+  dependency_type?: string;
+}
+
+export class TaskDependencyRepository {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async create(projectId: string, input: TaskDependencyCreateInput) {
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        project_id: projectId,
+        id: { in: [input.task_id, input.depends_on_id] },
+      },
+      select: { id: true },
+    });
+    const taskIds = new Set(tasks.map((task) => task.id));
+    if (!taskIds.has(input.task_id) || !taskIds.has(input.depends_on_id)) {
+      throw new Error('TaskDependency source and target tasks must belong to the same project');
+    }
+
+    return this.prisma.taskDependency.create({
+      data: {
+        ...(input.id ? { id: input.id } : {}),
+        project_id: projectId,
+        task_id: input.task_id,
+        depends_on_id: input.depends_on_id,
+        dependency_type: input.dependency_type ?? 'blocks',
+      },
+    });
+  }
+
+  async listByTask(projectId: string, taskId: string) {
+    return this.prisma.taskDependency.findMany({
+      where: { project_id: projectId, task_id: taskId },
+      orderBy: { created_at: 'asc' },
+    });
+  }
+}
+
 export interface RunCreateInput {
   run_id?: string;
   task_id: string;

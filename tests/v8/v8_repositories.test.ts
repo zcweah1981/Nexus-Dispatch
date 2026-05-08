@@ -7,6 +7,7 @@ import {
   ProjectRepository,
   ReportRepository,
   RunRepository,
+  TaskDependencyRepository,
   TaskRepository,
 } from '../../src/repositories/v8';
 
@@ -17,6 +18,7 @@ describe('V8-R1 Prisma Repository layer', () => {
   let prisma: PrismaClient;
   let projectRepo: ProjectRepository;
   let taskRepo: TaskRepository;
+  let dependencyRepo: TaskDependencyRepository;
   let runRepo: RunRepository;
   let reportRepo: ReportRepository;
 
@@ -31,6 +33,7 @@ describe('V8-R1 Prisma Repository layer', () => {
     prisma = new PrismaClient({ datasources: { db: { url: `file:${dbPath}` } } });
     projectRepo = new ProjectRepository(prisma);
     taskRepo = new TaskRepository(prisma);
+    dependencyRepo = new TaskDependencyRepository(prisma);
     runRepo = new RunRepository(prisma);
     reportRepo = new ReportRepository(prisma);
   }, 30000);
@@ -125,6 +128,44 @@ describe('V8-R1 Prisma Repository layer', () => {
     expect(updated.status).toBe('success');
     expect(updated.ended_at).toBeTruthy();
   });
+
+  test('TaskDependencyRepository writes project_id and rejects cross-project dependency edges', async () => {
+    const projectA = await projectRepo.create({ name: 'repo-dep-project-a' });
+    const projectB = await projectRepo.create({ name: 'repo-dep-project-b' });
+    const taskA1 = await taskRepo.create(projectA.id, {
+      title: 'Project A target',
+      objective: 'Dependency target in project A',
+      lane_required: 'DEV',
+    });
+    const taskA2 = await taskRepo.create(projectA.id, {
+      title: 'Project A source',
+      objective: 'Dependency source in project A',
+      lane_required: 'DEV',
+    });
+    const taskB = await taskRepo.create(projectB.id, {
+      title: 'Project B target',
+      objective: 'Must not be depended on from project A',
+      lane_required: 'DEV',
+    });
+
+    const dep = await dependencyRepo.create(projectA.id, {
+      task_id: taskA2.id,
+      depends_on_id: taskA1.id,
+      dependency_type: 'blocks',
+    });
+
+    expect(dep.project_id).toBe(projectA.id);
+    await expect(dependencyRepo.listByTask(projectA.id, taskA2.id)).resolves.toHaveLength(1);
+    await expect(dependencyRepo.listByTask(projectB.id, taskA2.id)).resolves.toHaveLength(0);
+    await expect(
+      dependencyRepo.create(projectA.id, {
+        task_id: taskA2.id,
+        depends_on_id: taskB.id,
+        dependency_type: 'blocks',
+      }),
+    ).rejects.toThrow(/same project/);
+  });
+
 
   test('ReportRepository writes project-scoped reports and blocks cross-project access', async () => {
     const projectA = await projectRepo.create({ name: 'repo-report-project-a' });

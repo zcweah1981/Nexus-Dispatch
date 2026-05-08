@@ -261,6 +261,7 @@ describe('AC2: GET /api/v1/tasks/pending — DAG 依赖检查', () => {
     // Create dependency: C depends on A
     await prismaDal.client.taskDependency.create({
       data: {
+        project_id: dagProjectId,
         task_id: taskC.id,
         depends_on_id: taskA.id,
         dependency_type: 'blocks',
@@ -326,6 +327,36 @@ describe('AC2: GET /api/v1/tasks/pending — DAG 依赖检查', () => {
     // Now C should be dispatchable since A is completed
     expect(taskIds).toContain(taskIdC);
   });
+
+  test('should reject task creation when dependencies point to another project', async () => {
+    const projectA = await prismaDal.createProject({ name: 'CrossDepApiProjectA' });
+    const projectB = await prismaDal.createProject({ name: 'CrossDepApiProjectB' });
+    const foreignTask = await prismaDal.createTask({
+      project_id: projectB.id,
+      title: 'Foreign dependency target',
+      objective: 'Must remain invisible to project A',
+      lane_required: 'DEV',
+      status: 'completed',
+    });
+
+    const res = await request(app)
+      .post('/api/v1/tasks')
+      .set(authHeader)
+      .send({
+        project_id: projectA.id,
+        title: 'Project A task with illegal dependency',
+        objective: 'Should be rejected before dependency write',
+        lane_required: 'DEV',
+        dependencies: [foreignTask.id],
+      });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toMatch(/same project/);
+    await expect(
+      prismaDal.client.taskDependency.findMany({ where: { project_id: projectA.id } }),
+    ).resolves.toHaveLength(0);
+  });
+
 
   test('should return empty tasks array when no created tasks', async () => {
     // Create a fresh project with no tasks
