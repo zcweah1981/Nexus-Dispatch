@@ -15,7 +15,7 @@ describe('T2.2: Adapter Factory', () => {
         const adapter = AdapterFactory.get_adapter('openclaw');
         const mockTask = { id: 'task-123', title: 'Test Task', description: 'Mock description' };
         const result = adapter.adapt(mockTask);
-        
+
         expect(result.task_id).toBe('task-123');
         expect(result.payload.messages).toBeDefined();
         expect(result.payload.messages[1].content).toContain('Test Task');
@@ -27,7 +27,7 @@ describe('T2.2: Adapter Factory', () => {
         const adapter = AdapterFactory.get_adapter('hermes_mcp');
         const mockTask = { id: 'task-456', title: 'Hermes Task' };
         const result = adapter.adapt(mockTask);
-        
+
         expect(result.task_id).toBe('task-456');
         expect(result.payload.mcp_intent).toBe('execute_task');
         expect(result.payload.parameters.title).toBe('Hermes Task');

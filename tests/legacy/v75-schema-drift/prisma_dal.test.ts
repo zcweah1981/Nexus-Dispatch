@@ -45,7 +45,7 @@ describe('PrismaDAL Concurrency', () => {
         }
 
         // 4. Update 10 runs concurrently
-        const updatePromises = runIds.map(runId => 
+        const updatePromises = runIds.map(runId =>
            dal.updateRunStatus(runId, 'success')
         );
 

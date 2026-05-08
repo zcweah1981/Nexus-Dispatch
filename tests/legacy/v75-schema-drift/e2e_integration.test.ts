@@ -82,7 +82,7 @@ describe('Phase 5: E2E 集成测试 (nd-v75-t51)', () => {
 
     await prismaDal.registerAgent({ id: pmAgentId, lane: 'ORCHESTRATOR', endpoint: 'http://pm.local:9999', dialect: 'openclaw' });
     await prismaDal.registerAgent({ id: devAgentId, lane: 'DEV', endpoint: 'http://dev-agent.local:9000', dialect: 'openclaw' });
-    
+
     await prismaDal.client.fSMController.create({
       data: {
         controller_id: 'fsm-task-v1',
@@ -125,7 +125,7 @@ describe('Phase 5: E2E 集成测试 (nd-v75-t51)', () => {
     });
 
     await prismaDal.client.projectBlueprint.update({ where: { blueprint_id: bpId }, data: { status: 'active' } });
-    
+
     const group1 = await prismaDal.createTaskGroup({ group_id: 'p1-group', name: 'Phase 1' });
     const t1 = await prismaDal.createTask({
       project_id: projectId,
@@ -138,7 +138,7 @@ describe('Phase 5: E2E 集成测试 (nd-v75-t51)', () => {
     });
 
     await daemon.tick();
-    
+
     let task1 = await prismaDal.getTask(t1.id);
     expect(task1?.status).toBe('dispatched');
 
@@ -167,7 +167,7 @@ describe('Phase 5: E2E 集成测试 (nd-v75-t51)', () => {
     await prismaDal.client.task.deleteMany({ where: { title: 'Timeout Task' } });
 
     const task = await prismaDal.createTask({ project_id: projectId, title: 'Timeout Task', objective: 'obj', lane_required: 'DEV', status: 'dispatched' });
-    
+
     const agent = await prismaDal.client.agent.findUnique({ where: { agent_id: devAgentId } });
     await prismaDal.client.run.create({
       data: {
@@ -193,14 +193,14 @@ describe('Phase 5: E2E 集成测试 (nd-v75-t51)', () => {
     const task = await prismaDal.createTask({ project_id: projectId, title: 'Retry Task', objective: 'obj', lane_required: 'DEV', status: 'dispatched', acceptance_mode: 'pm_audit', max_retries: 2 });
     const agent = await prismaDal.client.agent.findUnique({ where: { agent_id: devAgentId } });
     const run = await prismaDal.client.run.create({
-      data: { 
-        task_id: task.id, 
-        agent_id: agent!.id, 
-        idempotency_key: 'retry-run', 
-        status: 'running' 
+      data: {
+        task_id: task.id,
+        agent_id: agent!.id,
+        idempotency_key: 'retry-run',
+        status: 'running'
       }
     });
-    
+
     await request(app).post(`/api/v1/tasks/${task.id}/submit_proof_v2`).set('Authorization', `Bearer ${AUTH_TOKEN}`).send({
       run_id: run.run_id, artifact_type: 'test', payload: {}
     });

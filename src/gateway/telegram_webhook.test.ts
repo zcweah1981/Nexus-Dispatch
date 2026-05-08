@@ -46,12 +46,12 @@ describe('TelegramGateway', () => {
           }
       };
 
-      const promises = Array(5).fill(null).map(() => 
+      const promises = Array(5).fill(null).map(() =>
           request(app).post('/v1/webhook/telegram').send(payload)
       );
 
       const results = await Promise.all(promises);
-      
+
       const processed = results.filter(r => r.body.status === 'processed');
       const ignored = results.filter(r => r.body.status === 'ignored' && r.body.reason === 'duplicate');
 

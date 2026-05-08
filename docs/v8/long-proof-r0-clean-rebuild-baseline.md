@@ -1,6 +1,6 @@
 # Long Proof — V8-R0 Clean Rebuild Baseline
 
-任务：`nexus-v8-r0-clean-rebuild-baseline`  
+任务：`nexus-v8-r0-clean-rebuild-baseline`
 范围：仅执行 R0（冻结旧线、测试/Jest/git hygiene、V8 smoke skeleton）；未进入 R1-R9 Runtime API / Prisma Repository / Daemon / Review / Report / Cron / WebUI 重构。
 
 ## 修改文件

@@ -11,7 +11,7 @@ export class CircularDependencyError extends Error {
 
 /**
  * Validate a Directed Acyclic Graph (DAG) for circular dependencies using DFS three-color marking.
- * 
+ *
  * @param tasks List of task IDs.
  * @param edges List of tuples [source_task_id, target_task_id] representing dependencies.
  * @returns true if DAG is valid, otherwise throws CircularDependencyError.
@@ -20,11 +20,11 @@ export class CircularDependencyError extends Error {
 export function validate_dag(tasks: string[], edges: [string, string][]): boolean {
     // Build adjacency list
     const adj = new Map<string, string[]>();
-    
+
     for (const task of tasks) {
         adj.set(task, []);
     }
-    
+
     for (const [u, v] of edges) {
         // Handle cases where tasks might not be in the initial list
         if (!adj.has(u)) adj.set(u, []);
@@ -45,7 +45,7 @@ export function validate_dag(tasks: string[], edges: [string, string][]): boolea
 
     function dfs(node: string): void {
         colors.set(node, 1);
-        
+
         const neighbors = adj.get(node) || [];
         for (const neighbor of neighbors) {
             const color = colors.get(neighbor);
@@ -56,7 +56,7 @@ export function validate_dag(tasks: string[], edges: [string, string][]): boolea
                 dfs(neighbor);
             }
         }
-        
+
         colors.set(node, 2);
     }
 

@@ -64,14 +64,14 @@ const SettingsPanel: React.FC = () => {
         fetchWithAuth('/api/v1/agents'),
         fetchWithAuth('/api/v1/controllers')
       ]);
-      
+
       const agentsData = await agentsRes.json();
       const controllersData = await controllersRes.json();
-      
+
       setAgents(agentsData.agents || []);
       const ctrls = controllersData.controllers || [];
       setControllers(ctrls);
-      
+
       if (ctrls.length > 0) {
         const main = ctrls.find((c: any) => c.controller_id === 'ctrl-pm-main') || ctrls[0];
         setSelectedControllerId(main.controller_id);
@@ -103,10 +103,10 @@ const SettingsPanel: React.FC = () => {
       // We must only send the recognized config fields
       const schemaFields = [
         'default_reviewer', 'poll_interval_seconds', 'dispatch_policy',
-        'blueprint_auto_advance', 'max_concurrent_dispatches', 'retry_max_attempts', 
+        'blueprint_auto_advance', 'max_concurrent_dispatches', 'retry_max_attempts',
         'acceptance_mode', 'reviewer_routing'
       ];
-      
+
       const payload: any = {};
       schemaFields.forEach(f => {
         if (config[f] !== undefined) payload[f] = config[f];
@@ -117,17 +117,17 @@ const SettingsPanel: React.FC = () => {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      
+
       if (!response.ok) {
         const err = await response.json();
         throw new Error(err.error?.message || 'Save failed');
       }
-      
+
       setMessage({ type: 'success', text: 'Controller strategy synced with core successfully' });
-      setControllers(prev => prev.map(c => 
+      setControllers(prev => prev.map(c =>
         c.controller_id === selectedControllerId ? { ...c, config_json: config } : c
       ));
-      
+
       setTimeout(() => setMessage(null), 3000);
     } catch (err: any) {
       setMessage({ type: 'error', text: err.message });
@@ -170,21 +170,21 @@ const SettingsPanel: React.FC = () => {
       {/* Header Tabs - GitHub Dark Style */}
       <div className="flex-none px-6 pt-4 border-b border-[#30363d] bg-[#161b22]">
         <div className="flex space-x-4">
-          <button 
+          <button
             onClick={() => setActiveTab('review')}
             className={`pb-3 text-sm font-semibold border-b-2 transition-all flex items-center space-x-2 ${activeTab === 'review' ? 'border-[#f78166] text-[#e6edf3]' : 'border-transparent text-[#7d8590] hover:text-[#e6edf3] hover:border-[#8b949e]'}`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z"></path></svg>
             <span>Governance Strategy</span>
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('roster')}
             className={`pb-3 text-sm font-semibold border-b-2 transition-all flex items-center space-x-2 ${activeTab === 'roster' ? 'border-[#f78166] text-[#e6edf3]' : 'border-transparent text-[#7d8590] hover:text-[#e6edf3] hover:border-[#8b949e]'}`}
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"></path></svg>
             <span>Worker Roster</span>
           </button>
-          <button 
+          <button
             onClick={() => setActiveTab('system')}
             className={`pb-3 text-sm font-semibold border-b-2 transition-all flex items-center space-x-2 ${activeTab === 'system' ? 'border-[#f78166] text-[#e6edf3]' : 'border-transparent text-[#7d8590] hover:text-[#e6edf3] hover:border-[#8b949e]'}`}
           >
@@ -196,7 +196,7 @@ const SettingsPanel: React.FC = () => {
 
       <div className="flex-grow overflow-y-auto p-8 bg-[#0d1117]">
         <div className="max-w-6xl mx-auto">
-          
+
           {message && (
             <div className={`mb-6 p-4 rounded-md border text-sm flex items-center animate-in fade-in slide-in-from-top-2 duration-300 ${message.type === 'success' ? 'bg-[#1f2d23] border-[#238636]/40 text-[#3fb950]' : 'bg-[#2d1f1f] border-[#f85149]/40 text-[#f85149]'}`}>
               <span className="mr-3 text-lg">{message.type === 'success' ? '✓' : '⚠'}</span>
@@ -218,7 +218,7 @@ const SettingsPanel: React.FC = () => {
                       <p className="text-[#8b949e] text-xs font-mono uppercase">nexus_control_plane::hot_reload_enabled</p>
                     </div>
                   </div>
-                  <button 
+                  <button
                     onClick={saveConfig}
                     disabled={saving}
                     className={`px-6 py-2 rounded-md text-sm font-bold transition-all border shadow-sm ${saving ? 'bg-[#21262d] border-[#30363d] text-[#8b949e] cursor-not-allowed' : 'bg-[#238636] hover:bg-[#2ea043] border-[#238636] text-white'}`}
@@ -230,7 +230,7 @@ const SettingsPanel: React.FC = () => {
                   <div>
                     <label className="block text-[10px] font-bold text-[#8b949e] mb-2 uppercase tracking-widest">Active State Machine</label>
                     <div className="relative">
-                      <select 
+                      <select
                         value={selectedControllerId}
                         onChange={(e) => handleControllerChange(e.target.value)}
                         className="w-full bg-[#0d1117] border border-[#30363d] rounded-md px-4 py-2 text-sm text-[#e6edf3] focus:border-[#58a6ff] focus:ring-1 focus:ring-[#58a6ff] outline-none appearance-none cursor-pointer font-mono"
@@ -248,7 +248,7 @@ const SettingsPanel: React.FC = () => {
                   </div>
                   <div>
                     <label className="block text-[10px] font-bold text-[#8b949e] mb-2 uppercase tracking-widest">Global Default Auditor</label>
-                    <select 
+                    <select
                       value={config.default_reviewer || ''}
                       onChange={(e) => updateConfigField('default_reviewer', e.target.value)}
                       className="w-full bg-[#0d1117] border border-[#30363d] rounded-md px-4 py-2 text-sm text-[#e6edf3] focus:border-[#58a6ff] outline-none font-mono"
@@ -291,14 +291,14 @@ const SettingsPanel: React.FC = () => {
                       <div className="space-y-4">
                         <div className="flex items-center justify-between p-3 bg-[#0d1117] border border-[#30363d] rounded-md">
                           <div className="text-[10px] font-bold text-[#e6edf3] uppercase tracking-tighter">Auto-Advance Blueprint</div>
-                          <button 
+                          <button
                             onClick={() => updateConfigField('blueprint_auto_advance', !config.blueprint_auto_advance)}
                             className={`w-10 h-5 rounded-full relative transition-colors border ${config.blueprint_auto_advance ? 'bg-[#238636] border-[#2ea043]' : 'bg-[#21262d] border-[#30363d]'}`}
                           >
                             <span className={`absolute top-[2px] w-3 h-3 rounded-full bg-[#e6edf3] transition-transform ${config.blueprint_auto_advance ? 'translate-x-[22px]' : 'translate-x-[3px]'}`}></span>
                           </button>
                         </div>
-                        
+
                         <div className="space-y-4">
                           {[
                             { label: 'Max Concurrency', field: 'max_concurrent_dispatches', min: 1, max: 100, color: '#58a6ff' },
@@ -308,15 +308,15 @@ const SettingsPanel: React.FC = () => {
                             <div key={item.field} className="space-y-2 p-3 bg-[#0d1117] rounded-md border border-[#30363d]">
                               <div className="flex justify-between items-center mb-1">
                                 <label className="text-[10px] font-bold text-[#8b949e] uppercase">{item.label}</label>
-                                <input 
-                                  type="number" 
-                                  value={config[item.field] || item.min} 
+                                <input
+                                  type="number"
+                                  value={config[item.field] || item.min}
                                   onChange={(e) => updateConfigField(item.field, parseInt(e.target.value) || item.min)}
                                   className="w-12 bg-transparent text-right text-[10px] font-mono focus:outline-none"
                                   style={{ color: item.color }}
                                 />
                               </div>
-                              <input 
+                              <input
                                 type="range"
                                 min={item.min}
                                 max={item.max}
@@ -365,7 +365,7 @@ const SettingsPanel: React.FC = () => {
                                 </div>
                               </td>
                               <td className="px-6 py-4">
-                                <select 
+                                <select
                                   value={config.acceptance_mode?.[lane] || 'machine_audit'}
                                   onChange={(e) => updateAcceptanceMode(lane, e.target.value)}
                                   className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-[#e6edf3] outline-none focus:border-[#58a6ff] font-mono cursor-pointer"
@@ -376,7 +376,7 @@ const SettingsPanel: React.FC = () => {
                                 </select>
                               </td>
                               <td className="px-6 py-4">
-                                <select 
+                                <select
                                   value={config.reviewer_routing?.[lane] || ''}
                                   onChange={(e) => updateReviewerRoute(lane, e.target.value)}
                                   className="w-full bg-[#0d1117] border border-[#30363d] rounded px-3 py-1.5 text-xs text-[#e6edf3] outline-none focus:border-[#58a6ff] font-mono cursor-pointer"
@@ -521,7 +521,7 @@ const SettingsPanel: React.FC = () => {
 
         </div>
       </div>
-      
+
       {/* Footer System Status Bar */}
       <div className="flex-none p-3 bg-[#161b22] border-t border-[#30363d] flex justify-between items-center text-[10px] font-mono text-[#7d8590] px-8">
         <div className="flex items-center tracking-tighter">

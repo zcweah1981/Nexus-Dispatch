@@ -531,14 +531,14 @@ export class PrismaDAL {
     if (patch.states !== undefined) data.states_json = JSON.stringify(patch.states);
     if (patch.transitions !== undefined) data.transitions_json = JSON.stringify(patch.transitions);
     if (patch.initial_state !== undefined) data.initial_state = patch.initial_state;
-    
+
     // PRD 8.3 & 19.2: Handle config_json field for dynamic review & tuning
     if (patch.config_json !== undefined) {
-      data.config_json = typeof patch.config_json === 'string' 
-        ? patch.config_json 
+      data.config_json = typeof patch.config_json === 'string'
+        ? patch.config_json
         : JSON.stringify(patch.config_json);
     } else if (Object.keys(patch).some(k => [
-      'default_reviewer', 'poll_interval_seconds', 'blueprint_auto_advance', 
+      'default_reviewer', 'poll_interval_seconds', 'blueprint_auto_advance',
       'max_concurrent_dispatches', 'retry_max_attempts', 'acceptance_mode', 'reviewer_routing', 'notification_rules'
     ].includes(k))) {
       // Flattened patch from API (T4.1 WebUI)
@@ -546,10 +546,10 @@ export class PrismaDAL {
       const newConfig = { ...currentConfig };
       const configFields = [
         'default_reviewer', 'poll_interval_seconds', 'dispatch_policy',
-        'blueprint_auto_advance', 'max_concurrent_dispatches', 'retry_max_attempts', 
+        'blueprint_auto_advance', 'max_concurrent_dispatches', 'retry_max_attempts',
         'acceptance_mode', 'reviewer_routing', 'notification_rules'
       ];
-      
+
       configFields.forEach(f => {
         if ((patch as any)[f] !== undefined) {
           newConfig[f] = (patch as any)[f];

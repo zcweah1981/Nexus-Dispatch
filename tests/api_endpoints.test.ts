@@ -15,13 +15,13 @@ beforeAll(() => {
     if (!fs.existsSync(path.dirname(testDbPath))) {
         fs.mkdirSync(path.dirname(testDbPath), { recursive: true });
     }
-    
+
     dal = new DAL(testDbPath);
-    
+
     // Init schema
     const schemaSql = fs.readFileSync(path.resolve(__dirname, '../src/db/migrations/V1__init_schema.sql'), 'utf-8');
     dal.initSchema(schemaSql);
-    
+
     app = createServer(dal, AUTH_TOKEN);
 });
 
@@ -47,12 +47,12 @@ describe('API Endpoints: /v1/agents/register and /v1/projects/init', () => {
                 id: 'worker-node-1',
                 lane: 'DEV'
             });
-            
+
         expect(response.status).toBe(200);
         expect(response.body.id).toBe('worker-node-1');
         expect(response.body.lane).toBe('DEV');
         expect(response.body.status).toBe('online');
-        
+
         // Verify in DB
         const worker = (dal as any).db.prepare('SELECT * FROM nexus_workers WHERE id = ?').get('worker-node-1');
         expect(worker).toBeDefined();
@@ -67,7 +67,7 @@ describe('API Endpoints: /v1/agents/register and /v1/projects/init', () => {
             .send({
                 lane: 'DEV'
             });
-            
+
         // T2.6: Now validated by Ajv schema → 422 with VALIDATION_ERROR
         expect(response.status).toBe(422);
         expect(response.body.code).toBe('VALIDATION_ERROR');
@@ -80,22 +80,22 @@ describe('API Endpoints: /v1/agents/register and /v1/projects/init', () => {
             .post('/v1/agents/register')
             .set('Authorization', `Bearer ${AUTH_TOKEN}`)
             .send({ id: 'worker-node-2', lane: 'DEV' });
-            
+
         const initialWorker = (dal as any).db.prepare('SELECT * FROM nexus_workers WHERE id = ?').get('worker-node-2');
         const initialHeartbeat = initialWorker.last_heartbeat;
-        
+
         // Wait a bit
         await new Promise(resolve => setTimeout(resolve, 1000));
-        
+
         // Re-register with different lane
         const response = await request(app)
             .post('/v1/agents/register')
             .set('Authorization', `Bearer ${AUTH_TOKEN}`)
             .send({ id: 'worker-node-2', lane: 'PROD' });
-            
+
         expect(response.status).toBe(200);
         expect(response.body.lane).toBe('PROD');
-        
+
         const updatedWorker = (dal as any).db.prepare('SELECT * FROM nexus_workers WHERE id = ?').get('worker-node-2');
         expect(updatedWorker.lane).toBe('PROD');
         expect(updatedWorker.last_heartbeat).not.toBe(initialHeartbeat);
@@ -109,26 +109,26 @@ describe('API Endpoints: /v1/agents/register and /v1/projects/init', () => {
                 name: 'Test Project V1',
                 description: 'A test project for API verification'
             });
-            
+
         expect(response.status).toBe(201);
         expect(response.body.id).toBeDefined();
         expect(response.body.name).toBe('Test Project V1');
         expect(response.body.status).toBe('active');
-        
+
         const projectId = response.body.id;
-        
+
         // Verify in DB
         const project = (dal as any).db.prepare('SELECT * FROM nexus_projects WHERE id = ?').get(projectId);
         expect(project).toBeDefined();
         expect(project.name).toBe('Test Project V1');
         expect(project.description).toBe('A test project for API verification');
-        
+
         // Verify file system
         const projectRoot = path.resolve(process.env.NEXUS_ROOT || '/root/.hermes/projects', projectId);
         expect(fs.existsSync(projectRoot)).toBe(true);
         expect(fs.existsSync(path.join(projectRoot, 'PROJECT.md'))).toBe(true);
         expect(fs.existsSync(path.join(projectRoot, 'FILE_INDEX.md'))).toBe(true);
-        
+
         // Cleanup test files
         fs.rmSync(projectRoot, { recursive: true, force: true });
     });
@@ -140,7 +140,7 @@ describe('API Endpoints: /v1/agents/register and /v1/projects/init', () => {
             .send({
                 description: 'Missing name'
             });
-            
+
         // T2.6: Now validated by Ajv schema → 422 with VALIDATION_ERROR
         expect(response.status).toBe(422);
         expect(response.body.code).toBe('VALIDATION_ERROR');
@@ -161,9 +161,9 @@ describe('API Endpoints: /v1/tasks/:id/acknowledge', () => {
             ext_meta: {},
             max_retries: 3
         });
-        
+
         dal.updateTaskStatus(taskId, 'dispatched');
-        
+
         const response = await request(app)
             .post(`/v1/tasks/${taskId}/acknowledge`)
             .set('Authorization', `Bearer ${AUTH_TOKEN}`)
@@ -171,7 +171,7 @@ describe('API Endpoints: /v1/tasks/:id/acknowledge', () => {
                 worker_id: 'worker-1',
                 run_id: 'run-1'
             });
-            
+
         expect(response.status).toBe(200);
         expect(response.body.message).toBe('Task acknowledged');
     });

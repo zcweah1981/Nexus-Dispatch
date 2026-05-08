@@ -5,7 +5,7 @@ FROM node:20-alpine
 WORKDIR /app
 
 # Install build dependencies for better-sqlite3
-RUN apk add --no-cache python3 make g++ 
+RUN apk add --no-cache python3 make g++
 
 # The context . will be mounted via docker-compose during development.
 # Install dependencies

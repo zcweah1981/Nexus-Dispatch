@@ -13,7 +13,7 @@ describe('Task Submit Proof API', () => {
     beforeAll(() => {
         if (fs.existsSync(testDbPath)) fs.unlinkSync(testDbPath);
         dal = new DAL(testDbPath);
-        
+
         dal.initSchema(`
             CREATE TABLE IF NOT EXISTS nexus_projects (id TEXT PRIMARY KEY, name TEXT, description TEXT, status TEXT);
             CREATE TABLE IF NOT EXISTS nexus_tasks (id TEXT PRIMARY KEY, project_id TEXT, title TEXT, objective TEXT, lane TEXT, status TEXT, max_retries INTEGER, retry_count INTEGER DEFAULT 0, payload_schema TEXT, ext_meta TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
@@ -21,9 +21,9 @@ describe('Task Submit Proof API', () => {
             CREATE TABLE IF NOT EXISTS nexus_runs (run_id TEXT PRIMARY KEY, task_id TEXT, worker_id TEXT, idempotency_key TEXT, status TEXT DEFAULT 'running', error_stack TEXT, started_at DATETIME DEFAULT CURRENT_TIMESTAMP, ended_at DATETIME);
             CREATE TABLE IF NOT EXISTS nexus_artifacts (id TEXT PRIMARY KEY, run_id TEXT, artifact_type TEXT, payload_data TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);
         `);
-        
+
         dal._createProjectAndWorker('proj-1', 'worker-1');
-        
+
         app = createServer(dal, authToken);
     });
 
@@ -123,7 +123,7 @@ describe('Task Submit Proof API', () => {
         const task = dal.getTask(taskId);
         expect(task?.status).toBe('dispatched'); // Should not change
     });
-    
+
     it('should return 401 Unauthorized without correct token', async () => {
          const res = await request(app)
             .post('/api/v1/tasks/some-id/submit_proof')

@@ -116,7 +116,7 @@ describe('T4.2 SSE 实时状态推送', () => {
 
   describe('AC1: SSE endpoint headers and initial event', () => {
     it('should register /api/v1/events/stream route and set SSE headers', async () => {
-      // Verify the SSE route is registered by checking that a non-SSE GET 
+      // Verify the SSE route is registered by checking that a non-SSE GET
       // to the same path returns SSE content-type (not 404)
       // We use a minimal approach: start an HTTP server, make request, check headers
       const http = require('http');

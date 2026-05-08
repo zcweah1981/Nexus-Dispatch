@@ -54,7 +54,7 @@ describe('DAG Validator', () => {
         const start = performance.now();
         validate_dag(tasks, edges);
         const end = performance.now();
-        
+
         expect(end - start).toBeLessThan(50);
     });
 });
