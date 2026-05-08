@@ -19,3 +19,5 @@
 - `src/db/dal.ts`、`data/nexus.db` 与 `tests/legacy/**` 进入 legacy DAL 只读适配 / archive 边界，不得参与 V8 新主流程。
 - 详细边界见 `docs/v8/legacy-dal-boundary.md` 与 `docs/v8/prisma-schema-boundary.md`。
 - R2 FSM 状态枚举与 transition matrix 位于 `src/fsm/v8_state_matrix.ts`；legacy 状态映射只允许出现在 `docs/v8/legacy-status-mapping.md`。
+- R2 Runtime API + FSM Controller 总 proof 见 `docs/v8/long-proof-r2-api-contract-tests.md`；R3 Blueprint Freezer / Phase Gate 应冻结该 API contract tests 作为输入。
+- R3 Blueprint frozen JSON schema 位于 `src/blueprints/v8_blueprint_schema.ts`，合同测试为 `tests/v8/v8_blueprint_schema.test.ts`；本阶段只冻结 `{ phases: [{ group_id, tasks }] }` 输入契约，不执行 thaw/phase gate 行为。

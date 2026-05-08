@@ -23,6 +23,13 @@ import {
   agentRegisterSchema,
   taskCreateSchema,
   taskStatusUpdateSchema,
+  runtimeProjectCreateSchema,
+  runtimeTaskCreateSchema,
+  runtimeRunCreateSchema,
+  runtimeRunStatusUpdateSchema,
+  runtimeReportCreateSchema,
+  runtimeReportStatusUpdateSchema,
+  taskTransitionSchema,
   taskBatchSchema,
   taskAcceptSchema,
   taskRejectSchema,
@@ -32,11 +39,158 @@ import {
   taskRecoverTimeoutsSchema,
   runStatusUpdateSchema,
 } from './schemas';
+import { transitionTask, TransitionTaskError } from '../services/v8_transition_task_service';
+import { V8RuntimeApiError, V8RuntimeApiService } from '../services/v8_runtime_api_service';
 
 const ajv = new Ajv();
 
 export function createApiRouter(dal: DAL, authToken: string = 'valid-token', prismaDal?: PrismaDAL) {
   const router = Router();
+
+  // ═══════════════════════════════════════════════════════════════
+  //  V8-R2 Runtime API + FSM Controller boundary
+  //  主线 routes 只做 validation/HTTP 映射，所有业务读写走 V8RuntimeApiService
+  //  或 transitionTask FSM service；legacy SQL endpoints 保留在下方旧区块并不冒充 V8。
+  // ═══════════════════════════════════════════════════════════════
+
+  function runtimeServiceOr503(res: Response): V8RuntimeApiService | undefined {
+    if (!prismaDal) {
+      sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+      return undefined;
+    }
+    return new V8RuntimeApiService(prismaDal.client);
+  }
+
+  function sendRuntimeError(res: Response, error: any, fallback: string) {
+    if (error instanceof V8RuntimeApiError) {
+      return sendError(res, error.statusCode, error.message, error.code, error.details);
+    }
+    return sendError(res, 500, fallback, ErrorCodes.INTERNAL_ERROR, { message: error.message });
+  }
+
+  router.post('/runtime/projects', validateBody('runtimeProjectCreate', runtimeProjectCreateSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const project = await service.createProject(req.body);
+      return res.status(201).json({ project });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to create runtime project');
+    }
+  });
+
+  router.get('/runtime/projects/:id', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const project = await service.getProject(req.params.id as string);
+      return res.status(200).json({ project });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime project');
+    }
+  });
+
+  router.post('/runtime/tasks', validateBody('runtimeTaskCreate', runtimeTaskCreateSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, ...taskInput } = req.body;
+    try {
+      const task = await service.createTask(project_id, taskInput);
+      stateEmitter.emit('state_change', { type: 'task_created', data: { project_id, task_id: task.id, status: task.status } });
+      return res.status(201).json({ task });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to create runtime task');
+    }
+  });
+
+  router.get('/runtime/tasks/:id', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.query.project_id as string | undefined;
+    if (!projectId) return sendError(res, 400, 'project_id query is required', ErrorCodes.BAD_REQUEST);
+    try {
+      const task = await service.getTask(projectId, req.params.id as string);
+      return res.status(200).json({ task });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime task');
+    }
+  });
+
+  router.post('/runtime/runs', validateBody('runtimeRunCreate', runtimeRunCreateSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, ...runInput } = req.body;
+    try {
+      const run = await service.createRun(project_id, runInput);
+      stateEmitter.emit('state_change', { type: 'run_created', data: { project_id, run_id: run.run_id, task_id: run.task_id } });
+      return res.status(201).json({ run });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to create runtime run');
+    }
+  });
+
+  router.patch('/runtime/runs/:id/status', validateBody('runtimeRunStatusUpdate', runtimeRunStatusUpdateSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, status, error_stack, result_summary } = req.body;
+    try {
+      const run = await service.updateRunStatus(project_id, req.params.id as string, status, { error_stack, result_summary });
+      stateEmitter.emit('state_change', { type: 'run_status_updated', data: { project_id, run_id: run.run_id, status } });
+      return res.status(200).json({ run });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to update runtime run status');
+    }
+  });
+
+  router.post('/runtime/reports', validateBody('runtimeReportCreate', runtimeReportCreateSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, ...reportInput } = req.body;
+    try {
+      const report = await service.createReport(project_id, reportInput);
+      return res.status(201).json({ report });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to create runtime report');
+    }
+  });
+
+  router.patch('/runtime/reports/:id/status', validateBody('runtimeReportStatusUpdate', runtimeReportStatusUpdateSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, status, delivery_json } = req.body;
+    try {
+      const report = await service.updateReportStatus(project_id, req.params.id as string, status, { delivery_json });
+      return res.status(200).json({ report });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to update runtime report status');
+    }
+  });
+
+  router.post('/runtime/tasks/transition', validateBody('taskTransition', taskTransitionSchema), async (req: Request, res: Response) => {
+    if (!prismaDal) {
+      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
+    }
+
+    try {
+      const result = await transitionTask({ prisma: prismaDal.client }, req.body);
+      stateEmitter.emit('state_change', {
+        type: 'task_transitioned',
+        data: {
+          project_id: result.audit.project_id,
+          task_id: result.audit.task_id,
+          event: result.audit.event,
+          old_status: result.audit.from_status,
+          new_status: result.audit.to_status,
+        },
+      });
+      return res.status(200).json(result);
+    } catch (error: any) {
+      if (error instanceof TransitionTaskError) {
+        return sendError(res, error.statusCode, error.message, error.code, error.details);
+      }
+      return sendError(res, 500, 'Failed to transition task', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+    }
+  });
 
   // ═══════════════════════════════════════════════════════════════
   //  T2.1: 任务管理 API（5个接口）

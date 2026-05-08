@@ -45,7 +45,7 @@ export const V8_TASK_TRANSITIONS: TransitionMatrix<V8TaskStatus> = {
   created: ['dispatched', 'cancelled'],
   dispatched: ['running', 'created', 'cancelled'],
   running: ['completion_pending', 'retry_ready', 'blocked', 'dead_letter', 'cancelled'],
-  completion_pending: ['review_pending', 'completed', 'retry_ready', 'blocked', 'cancelled'],
+  completion_pending: ['review_pending', 'retry_ready', 'blocked', 'cancelled'],
   review_pending: ['completed', 'retry_ready', 'blocked', 'cancelled'],
   retry_ready: ['dispatched', 'dead_letter', 'cancelled'],
   blocked: ['retry_ready', 'dead_letter', 'cancelled'],

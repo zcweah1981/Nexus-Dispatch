@@ -179,6 +179,138 @@ export const taskStatusUpdateSchema = {
   additionalProperties: false,
 } as const;
 
+// ─── V8 Runtime API Schemas（R2 主线：thin routes -> service/repository） ──
+export const runtimeProjectCreateSchema = {
+  $id: 'runtimeProjectCreate',
+  type: 'object',
+  required: ['name'],
+  properties: {
+    id:             { type: 'string', minLength: 1 },
+    name:           { type: 'string', minLength: 1, maxLength: 256 },
+    status:         { type: 'string', maxLength: 64 },
+    pm_soul_prompt: { type: 'string', maxLength: 8192 },
+    channel_config: { type: 'object', additionalProperties: true },
+  },
+  additionalProperties: false,
+} as const;
+
+export const runtimeTaskCreateSchema = {
+  $id: 'runtimeTaskCreate',
+  type: 'object',
+  required: ['project_id', 'title', 'objective', 'lane_required'],
+  properties: {
+    project_id:          { type: 'string', minLength: 1 },
+    id:                  { type: 'string', minLength: 1 },
+    title:               { type: 'string', minLength: 1, maxLength: 512 },
+    objective:           { type: 'string', minLength: 1, maxLength: 8192 },
+    lane_required:       { type: 'string', minLength: 1, maxLength: 64 },
+    status:              { type: 'string', maxLength: 64 },
+    payload:             { } as any,
+    payload_schema:      { } as any,
+    proof_data:          { } as any,
+    ext_meta:            { } as any,
+    task_group_id:       { type: 'string' },
+    acceptance_criteria: { } as any,
+    reviewer:            { type: 'string', maxLength: 128 },
+    acceptance_mode:     { type: 'string', maxLength: 64 },
+    max_retries:         { type: 'integer', minimum: 0, maximum: 100 },
+    retry_count:         { type: 'integer', minimum: 0, maximum: 100 },
+  },
+  additionalProperties: false,
+} as const;
+
+export const runtimeRunCreateSchema = {
+  $id: 'runtimeRunCreate',
+  type: 'object',
+  required: ['project_id', 'task_id', 'agent_id'],
+  properties: {
+    project_id:      { type: 'string', minLength: 1 },
+    run_id:          { type: 'string', minLength: 1 },
+    task_id:         { type: 'string', minLength: 1 },
+    agent_id:        { type: 'string', minLength: 1 },
+    dispatch_id:     { type: 'string' },
+    worker_run_id:   { type: 'string' },
+    idempotency_key: { type: 'string' },
+    status:          { type: 'string', enum: ['created', 'running', 'success', 'cancelled', 'error', 'failed'] },
+    error_stack:     { type: 'string', maxLength: 65536 },
+    result_summary:  { type: 'string', maxLength: 65536 },
+  },
+  additionalProperties: false,
+} as const;
+
+export const runtimeRunStatusUpdateSchema = {
+  $id: 'runtimeRunStatusUpdate',
+  type: 'object',
+  required: ['project_id', 'status'],
+  properties: {
+    project_id:     { type: 'string', minLength: 1 },
+    status:         { type: 'string', enum: ['created', 'running', 'success', 'cancelled', 'error', 'failed'] },
+    error_stack:    { type: 'string', maxLength: 65536 },
+    result_summary: { type: 'string', maxLength: 65536 },
+  },
+  additionalProperties: false,
+} as const;
+
+export const runtimeReportCreateSchema = {
+  $id: 'runtimeReportCreate',
+  type: 'object',
+  required: ['project_id', 'message_type', 'payload_json'],
+  properties: {
+    project_id:    { type: 'string', minLength: 1 },
+    id:            { type: 'string', minLength: 1 },
+    task_id:       { type: 'string' },
+    run_id:        { type: 'string' },
+    message_type:  { type: 'string', minLength: 1, maxLength: 128 },
+    status:        { type: 'string', enum: ['pending', 'sending', 'sent', 'suppressed', 'error', 'failed'] },
+    summary:       { type: 'string', maxLength: 4096 },
+    payload_json:  { } as any,
+    delivery_json: { } as any,
+  },
+  additionalProperties: false,
+} as const;
+
+export const runtimeReportStatusUpdateSchema = {
+  $id: 'runtimeReportStatusUpdate',
+  type: 'object',
+  required: ['project_id', 'status'],
+  properties: {
+    project_id:    { type: 'string', minLength: 1 },
+    status:        { type: 'string', enum: ['pending', 'sending', 'sent', 'suppressed', 'error', 'failed'] },
+    delivery_json: { } as any,
+  },
+  additionalProperties: false,
+} as const;
+
+// ─── POST /api/v1/runtime/tasks/transition — V8 FSM 状态迁移 ─────────
+export const taskTransitionSchema = {
+  $id: 'taskTransition',
+  type: 'object',
+  required: ['project_id', 'task_id', 'event', 'proof'],
+  properties: {
+    project_id: { type: 'string', minLength: 1 },
+    task_id:    { type: 'string', minLength: 1 },
+    event: {
+      type: 'string',
+      enum: [
+        'dispatch',
+        'start',
+        'submit_completion',
+        'request_review',
+        'auto_complete',
+        'review_pass',
+        'retry',
+        'block',
+        'dead_letter',
+        'cancel',
+        'reopen',
+        'return_to_created',
+      ],
+    },
+    proof: { type: 'object', additionalProperties: true },
+  },
+  additionalProperties: false,
+} as const;
+
 // ─── POST /api/v1/tasks/batch — 批量注入 ─────────────────────────────
 export const taskBatchSchema = {
   $id: 'taskBatch',

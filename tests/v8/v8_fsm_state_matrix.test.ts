@@ -48,6 +48,7 @@ describe('V8-R2 FSM state matrix', () => {
     expect(canTransitionV8('task', 'dispatched', 'running')).toBe(true);
     expect(canTransitionV8('task', 'running', 'completion_pending')).toBe(true);
     expect(canTransitionV8('task', 'completion_pending', 'review_pending')).toBe(true);
+    expect(canTransitionV8('task', 'completion_pending', 'completed')).toBe(false);
     expect(canTransitionV8('task', 'review_pending', 'completed')).toBe(true);
     expect(canTransitionV8('task', 'review_pending', 'retry_ready')).toBe(true);
     expect(canTransitionV8('task', 'retry_ready', 'dispatched')).toBe(true);
@@ -86,7 +87,7 @@ describe('V8-R2 FSM state matrix', () => {
     expect(canTransitionV8('run', 'running', 'failed')).toBe(false);
     expect(canTransitionV8('unknown' as never, 'created', 'running')).toBe(false);
 
-    expect(getAllowedV8NextStates('task', 'completion_pending')).toEqual(['review_pending', 'completed', 'retry_ready', 'blocked', 'cancelled']);
+    expect(getAllowedV8NextStates('task', 'completion_pending')).toEqual(['review_pending', 'retry_ready', 'blocked', 'cancelled']);
     expect(() => assertV8TransitionAllowed('task', 'created', 'completed')).toThrow(
       /Illegal V8 task transition: created -> completed/,
     );
