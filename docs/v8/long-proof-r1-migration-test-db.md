@@ -1,6 +1,6 @@
 # Long Proof — V8-R1 Migration Test DB
 
-任务：`nexus-v8-r1-t2-migration-test-db`  
+任务：`nexus-v8-r1-t2-migration-test-db`
 范围：仅执行 R1 Schema + Prisma 单一数据层下的测试 DB migration 初始化；未进入 R2-R9 Runtime API / Repository 行为重写 / Daemon / Review / Report / Cron / WebUI。
 
 ## 前置阅读

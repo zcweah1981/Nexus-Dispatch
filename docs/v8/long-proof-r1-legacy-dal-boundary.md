@@ -1,6 +1,6 @@
 # Long Proof — V8-R1 Legacy DAL 主线退场边界
 
-任务：`nexus-v8-r1-t5-legacy-dal-boundary`  
+任务：`nexus-v8-r1-t5-legacy-dal-boundary`
 范围：仅执行 R1 Schema + Prisma 单一数据层的 legacy 退场边界说明与 contract；未进入 R2-R9 Runtime API / Daemon / Review / Report / Cron / WebUI 实现。
 
 ## 先读材料

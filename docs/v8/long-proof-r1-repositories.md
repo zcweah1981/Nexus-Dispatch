@@ -1,6 +1,6 @@
 # Long Proof — V8-R1 Prisma Repository Layer
 
-任务：`nexus-v8-r1-t3-repositories`  
+任务：`nexus-v8-r1-t3-repositories`
 范围：仅执行 R1 Schema + Prisma 单一数据层下的 Repository 最小接口；未进入 R2-R9 Runtime API / Daemon / Review / Report / Cron / WebUI 行为改造。
 
 ## 前置阅读

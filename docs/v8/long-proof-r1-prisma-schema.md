@@ -1,6 +1,6 @@
 # Long Proof — V8-R1 Prisma Schema
 
-任务：`nexus-v8-r1-t1-prisma-schema`  
+任务：`nexus-v8-r1-t1-prisma-schema`
 范围：仅执行 R1 Schema + Prisma 单一数据层契约；未进入 R2-R9 Runtime API / Repository 行为重写 / Daemon / Review / Report / Cron 执行 / WebUI。
 
 ## 前置阅读

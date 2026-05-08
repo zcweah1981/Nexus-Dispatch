@@ -1,6 +1,6 @@
 # Long Proof — V8-R1 Schema Drift Fix
 
-任务：`nexus-v8-r1-t4-schema-drift-fix`  
+任务：`nexus-v8-r1-t4-schema-drift-fix`
 范围：R1 Schema + Prisma 单一数据层收口；不进入 R2-R9 Runtime API / Daemon / Review / Report / Cron / WebUI 重构。
 
 ## 前置阅读
@@ -62,4 +62,4 @@
 
 - R2 可基于 `src/repositories/v8.ts` 与 `prisma/schema.prisma` 实现 Runtime API contract。
 - 后续阶段继续保持：禁止复制 `data/nexus.db` / `prisma/data/nexus.db`，测试从 checked-in schema 初始化临时 DB。
-- Review/Report/Cron 阶段必须沿用 project-scoped Prisma Repository 边界。 
+- Review/Report/Cron 阶段必须沿用 project-scoped Prisma Repository 边界。
