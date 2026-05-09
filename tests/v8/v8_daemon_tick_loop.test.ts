@@ -127,6 +127,29 @@ describe('V8-R4 daemon tick loop five-step rebuild', () => {
     ]);
     expect(observedSteps).toContain('dispatch:task-r4-main:long-coder-1');
 
+    const dispatchReport = await prisma.report.findFirstOrThrow({
+      where: { project_id: projectId, task_id: 'task-r4-main', message_type: 'agent_dispatch' },
+    });
+    expect(dispatchReport.status).toBe('sent');
+    expect(dispatchReport.run_id).toBeTruthy();
+    expect(JSON.parse(dispatchReport.payload_json)).toMatchObject({
+      project_id: projectId,
+      task_id: 'task-r4-main',
+      endpoint: 'mock://long',
+      agent_id: 'long-coder-1',
+    });
+
+    const dispatchArtifact = await prisma.artifact.findFirstOrThrow({
+      where: { project_id: projectId, task_id: 'task-r4-main', artifact_type: 'worker_dispatch_proof' },
+    });
+    expect(dispatchArtifact.run_id).toBe(dispatchReport.run_id);
+    expect(JSON.parse(dispatchArtifact.payload_data || '{}')).toMatchObject({
+      project_id: projectId,
+      task_id: 'task-r4-main',
+      endpoint: 'mock://long',
+      worker_run_id: 'worker-r4-main-1',
+    });
+
     const mainTask = await prisma.task.findFirstOrThrow({ where: { id: 'task-r4-main', project_id: projectId } });
     expect(mainTask.status).toBe('review_pending');
     expect(JSON.parse(mainTask.proof_data || '{}')).toMatchObject({ event: 'request_review', project_id: projectId });
@@ -153,6 +176,85 @@ describe('V8-R4 daemon tick loop five-step rebuild', () => {
 
     const otherTask = await prisma.task.findFirstOrThrow({ where: { id: 'task-other-project', project_id: otherProjectId } });
     expect(otherTask.status).toBe('created');
+  });
+
+  test('default OpenAI-compatible worker client posts dispatch to registered endpoint and records proof', async () => {
+    const projectId = 'project-r4-openai-dispatch';
+    await seedProject(prisma, projectId);
+    await prisma.agent.create({
+      data: {
+        id: 'agent-openai-dev',
+        agent_id: 'long-coder-1',
+        project_id: projectId,
+        endpoint: 'https://worker.example/v1/chat/completions',
+        lane: 'DEV',
+        dialect: 'gpt-4o-compatible',
+        soul_prompt: 'You are Long.',
+        tools_allowed: '[]',
+        status: 'online',
+      },
+    });
+    await prisma.task.create({
+      data: {
+        id: 'task-openai-dispatch',
+        project_id: projectId,
+        title: 'Dispatch through OpenAI-compatible endpoint',
+        objective: 'Call registered endpoint and capture run proof',
+        lane_required: 'DEV',
+        status: 'created',
+        acceptance_mode: 'standard',
+      },
+    });
+
+    const calls: any[] = [];
+    const daemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      workerFetch: async (url, init) => {
+        calls.push({ url, init, body: JSON.parse(String(init?.body)) });
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ id: 'chatcmpl-openai-worker-run-1' }),
+          text: async () => '',
+        };
+      },
+    });
+
+    const result = await daemon.tick();
+
+    expect(result.dispatched_task_ids).toEqual(['task-openai-dispatch']);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].url).toBe('https://worker.example/v1/chat/completions');
+    expect(calls[0].body).toMatchObject({
+      model: 'gpt-4o-compatible',
+      metadata: { project_id: projectId, task_id: 'task-openai-dispatch', agent_id: 'long-coder-1' },
+    });
+    expect(calls[0].body.messages[1].content).toContain('task-openai-dispatch');
+
+    const run = await prisma.run.findFirstOrThrow({ where: { project_id: projectId, task_id: 'task-openai-dispatch' } });
+    expect(run.status).toBe('running');
+    expect(run.worker_run_id).toBe('chatcmpl-openai-worker-run-1');
+    expect(run.result_summary).toContain('lease_token');
+
+    const dispatchReport = await prisma.report.findFirstOrThrow({
+      where: { project_id: projectId, task_id: 'task-openai-dispatch', message_type: 'agent_dispatch' },
+    });
+    expect(dispatchReport.status).toBe('sent');
+    expect(JSON.parse(dispatchReport.payload_json)).toMatchObject({
+      endpoint: 'https://worker.example/v1/chat/completions',
+      worker_run_id: 'chatcmpl-openai-worker-run-1',
+    });
+
+    const dispatchArtifact = await prisma.artifact.findFirstOrThrow({
+      where: { project_id: projectId, task_id: 'task-openai-dispatch', artifact_type: 'worker_dispatch_proof' },
+    });
+    expect(dispatchArtifact.run_id).toBe(run.run_id);
+    expect(JSON.parse(dispatchArtifact.payload_data || '{}')).toMatchObject({
+      run_id: run.run_id,
+      endpoint: 'https://worker.example/v1/chat/completions',
+      worker_run_id: 'chatcmpl-openai-worker-run-1',
+    });
   });
 
   test('closeout archives completed project group and writes sent group summary without touching other projects', async () => {
@@ -269,25 +371,22 @@ describe('V8-R4 daemon tick loop five-step rebuild', () => {
     const result = await daemon.tick();
 
     expect(result.recovered_stale_task_ids).toEqual(['task-stale-run']);
-    expect(result.claimed_task_ids).toEqual(['task-stale-run']);
-    expect(result.dispatched_task_ids).toEqual(['task-stale-run']);
-    expect(dispatchedPayloads).toHaveLength(1);
-    expect(dispatchedPayloads[0].lease).toMatchObject({ lease_ttl_ms: 300000 });
-    expect(dispatchedPayloads[0].lease.lease_token).toContain('task-stale-run');
+    expect(result.claimed_task_ids).toEqual([]);
+    expect(result.dispatched_task_ids).toEqual([]);
+    expect(dispatchedPayloads).toHaveLength(0);
 
     const oldRun = await prisma.run.findFirstOrThrow({ where: { project_id: projectId, run_id: 'run-stale-old' } });
     expect(oldRun.status).toBe('error');
-    expect(oldRun.error_stack).toContain('stale_takeover');
+    expect(oldRun.error_stack).toContain('timeout_recovery');
     expect(oldRun.ended_at).toBeTruthy();
 
-    const freshRun = await prisma.run.findFirstOrThrow({ where: { project_id: projectId, worker_run_id: 'worker-stale-fresh' } });
-    expect(freshRun.status).toBe('running');
-    expect(freshRun.run_id).not.toBe('run-stale-old');
-    expect(freshRun.result_summary).toContain('lease_token');
+    const freshRun = await prisma.run.findFirst({ where: { project_id: projectId, worker_run_id: 'worker-stale-fresh' } });
+    expect(freshRun).toBeNull();
 
     const task = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: 'task-stale-run' } });
-    expect(task.status).toBe('running');
-    expect(JSON.parse(task.ext_meta || '{}')).toMatchObject({ stale_takeover: { previous_run_id: 'run-stale-old' } });
+    expect(task.status).toBe('retry_ready');
+    expect(task.retry_count).toBe(1);
+    expect(JSON.parse(task.ext_meta || '{}')).toMatchObject({ stale_takeover: { previous_run_id: 'run-stale-old', outcome: 'retry_ready' } });
   });
 
   test('worker result ingest rejects stale lease result after takeover and accepts only active lease', async () => {
@@ -355,6 +454,242 @@ describe('V8-R4 daemon tick loop five-step rebuild', () => {
     expect(JSON.parse(report.payload_json)).toMatchObject({ lease_token: 'lease-active-token' });
   });
 
+  test('worker result ingest is exactly-once for duplicate active lease results', async () => {
+    const projectId = 'project-r4-result-once';
+    await seedProject(prisma, projectId);
+    await prisma.agent.create({
+      data: {
+        id: 'agent-dev-result-once',
+        agent_id: 'long-coder-1',
+        project_id: projectId,
+        endpoint: 'mock://long-result-once',
+        lane: 'DEV',
+        dialect: 'hermes',
+        soul_prompt: '',
+        tools_allowed: '[]',
+        status: 'online',
+      },
+    });
+    await prisma.task.create({
+      data: {
+        id: 'task-result-once',
+        project_id: projectId,
+        title: 'Result ingest exactly once',
+        objective: 'Duplicate worker completions must not duplicate closeout side effects',
+        lane_required: 'DEV',
+        status: 'running',
+        acceptance_mode: 'standard',
+      },
+    });
+    await prisma.run.create({
+      data: {
+        run_id: 'run-result-once',
+        project_id: projectId,
+        task_id: 'task-result-once',
+        agent_id: 'agent-dev-result-once',
+        worker_run_id: 'worker-result-once',
+        idempotency_key: 'project-r4-result-once:task-result-once:active',
+        status: 'running',
+        result_summary: JSON.stringify({ lease_token: 'lease-result-once' }),
+      },
+    });
+
+    const duplicateResult = {
+      project_id: projectId,
+      task_id: 'task-result-once',
+      worker_run_id: 'worker-result-once',
+      lease_token: 'lease-result-once',
+      summary: 'proof ready once',
+      proof: { tests: ['exactly-once'], result: 'passed' },
+    };
+    const firstDaemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      workerClient: {
+        dispatch: async () => undefined,
+        drainResults: async () => [duplicateResult, duplicateResult],
+      },
+    });
+    const firstTick = await firstDaemon.tick();
+
+    expect(firstTick.ingested_task_ids).toEqual(['task-result-once']);
+    expect(firstTick.steps.find((step) => step.name === 'ingest')?.details.filter((detail) => detail === 'ingested:task-result-once')).toHaveLength(1);
+
+    const replayDaemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      workerClient: {
+        dispatch: async () => undefined,
+        drainResults: async () => [duplicateResult],
+      },
+    });
+    const replayTick = await replayDaemon.tick();
+
+    expect(replayTick.ingested_task_ids).toEqual([]);
+    const task = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: 'task-result-once' } });
+    expect(task.status).toBe('completed');
+    const run = await prisma.run.findFirstOrThrow({ where: { project_id: projectId, run_id: 'run-result-once' } });
+    expect(run.status).toBe('success');
+    const reports = await prisma.report.findMany({ where: { project_id: projectId, task_id: 'task-result-once', message_type: 'agent_result' } });
+    expect(reports).toHaveLength(1);
+    const artifacts = await prisma.artifact.findMany({ where: { project_id: projectId, task_id: 'task-result-once', run_id: 'run-result-once', artifact_type: 'worker_result_ingest' } });
+    expect(artifacts).toHaveLength(1);
+    expect(JSON.parse(artifacts[0].payload_data || '{}')).toMatchObject({
+      project_id: projectId,
+      task_id: 'task-result-once',
+      run_id: 'run-result-once',
+      worker_run_id: 'worker-result-once',
+      idempotency_key: 'project-r4-result-once:run-result-once:worker-result-once:lease-result-once',
+    });
+  });
+
+  test('timeout recovery moves retries-remaining timeout to retry_ready for next tick', async () => {
+    const projectId = 'project-r4-timeout-retry-ready';
+    await seedProject(prisma, projectId);
+    await prisma.agent.create({
+      data: {
+        id: 'agent-dev-timeout-retry-ready',
+        agent_id: 'long-coder-1',
+        project_id: projectId,
+        endpoint: 'mock://long-timeout-retry-ready',
+        lane: 'DEV',
+        dialect: 'hermes',
+        soul_prompt: '',
+        tools_allowed: '[]',
+        status: 'online',
+      },
+    });
+    await prisma.task.create({
+      data: {
+        id: 'task-timeout-retry-ready',
+        project_id: projectId,
+        title: 'Timeout retry ready',
+        objective: 'Timeout should pause in retry_ready before the next dispatch tick',
+        lane_required: 'DEV',
+        status: 'running',
+        max_retries: 2,
+        retry_count: 1,
+      },
+    });
+    await prisma.run.create({
+      data: {
+        run_id: 'run-timeout-retry-old',
+        project_id: projectId,
+        task_id: 'task-timeout-retry-ready',
+        agent_id: 'agent-dev-timeout-retry-ready',
+        worker_run_id: 'worker-timeout-retry-old',
+        idempotency_key: 'project-r4-timeout-retry-ready:task-timeout-retry-ready:old',
+        status: 'running',
+        started_at: new Date(Date.now() - 60 * 60 * 1000),
+        result_summary: JSON.stringify({ lease_token: 'timeout-retry-old-token' }),
+      },
+    });
+
+    const dispatch = jest.fn();
+    const daemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      staleRunMs: 30 * 60 * 1000,
+      now: () => new Date(),
+      workerClient: { dispatch, drainResults: async () => [] },
+    });
+
+    const result = await daemon.tick();
+
+    expect(result.recovered_stale_task_ids).toEqual(['task-timeout-retry-ready']);
+    expect(result.claimed_task_ids).toEqual([]);
+    expect(result.dispatched_task_ids).toEqual([]);
+    expect(dispatch).not.toHaveBeenCalled();
+    const oldRun = await prisma.run.findFirstOrThrow({ where: { project_id: projectId, run_id: 'run-timeout-retry-old' } });
+    expect(oldRun.status).toBe('error');
+    expect(oldRun.error_stack).toContain('timeout_recovery');
+    const task = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: 'task-timeout-retry-ready' } });
+    expect(task.status).toBe('retry_ready');
+    expect(task.retry_count).toBe(2);
+    expect(JSON.parse(task.ext_meta || '{}')).toMatchObject({
+      timeout_recovery: { previous_run_id: 'run-timeout-retry-old', outcome: 'retry_ready', retry_count: 2, max_retries: 2 },
+    });
+    expect(JSON.parse(task.proof_data || '{}')).toMatchObject({ event: 'retry', project_id: projectId });
+
+    dispatch.mockResolvedValueOnce({ worker_run_id: 'worker-timeout-retry-fresh' });
+    const retryDispatchTick = await daemon.tick();
+    expect(retryDispatchTick.claimed_task_ids).toEqual(['task-timeout-retry-ready']);
+    expect(retryDispatchTick.dispatched_task_ids).toEqual(['task-timeout-retry-ready']);
+    const freshRun = await prisma.run.findFirstOrThrow({ where: { project_id: projectId, worker_run_id: 'worker-timeout-retry-fresh' } });
+    expect(freshRun.status).toBe('running');
+    const retriedTask = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: 'task-timeout-retry-ready' } });
+    expect(retriedTask.status).toBe('running');
+  });
+
+  test('timeout recovery sends exhausted retries to dead_letter without redispatch', async () => {
+    const projectId = 'project-r4-timeout-dead-letter';
+    await seedProject(prisma, projectId);
+    await prisma.agent.create({
+      data: {
+        id: 'agent-dev-timeout-dead-letter',
+        agent_id: 'long-coder-1',
+        project_id: projectId,
+        endpoint: 'mock://long-timeout-dead-letter',
+        lane: 'DEV',
+        dialect: 'hermes',
+        soul_prompt: '',
+        tools_allowed: '[]',
+        status: 'online',
+      },
+    });
+    await prisma.task.create({
+      data: {
+        id: 'task-timeout-dead-letter',
+        project_id: projectId,
+        title: 'Timeout exhausted retries',
+        objective: 'Timeout should become dead_letter after retry budget is exhausted',
+        lane_required: 'DEV',
+        status: 'running',
+        max_retries: 2,
+        retry_count: 2,
+      },
+    });
+    await prisma.run.create({
+      data: {
+        run_id: 'run-timeout-exhausted',
+        project_id: projectId,
+        task_id: 'task-timeout-dead-letter',
+        agent_id: 'agent-dev-timeout-dead-letter',
+        worker_run_id: 'worker-timeout-exhausted',
+        idempotency_key: 'project-r4-timeout-dead-letter:task-timeout-dead-letter:old',
+        status: 'running',
+        started_at: new Date(Date.now() - 60 * 60 * 1000),
+        result_summary: JSON.stringify({ lease_token: 'timeout-exhausted-token' }),
+      },
+    });
+
+    const dispatch = jest.fn();
+    const daemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      staleRunMs: 30 * 60 * 1000,
+      now: () => new Date(),
+      workerClient: { dispatch, drainResults: async () => [] },
+    });
+
+    const result = await daemon.tick();
+
+    expect(result.recovered_stale_task_ids).toEqual(['task-timeout-dead-letter']);
+    expect(result.claimed_task_ids).toEqual([]);
+    expect(result.dispatched_task_ids).toEqual([]);
+    expect(dispatch).not.toHaveBeenCalled();
+    const oldRun = await prisma.run.findFirstOrThrow({ where: { project_id: projectId, run_id: 'run-timeout-exhausted' } });
+    expect(oldRun.status).toBe('error');
+    expect(oldRun.error_stack).toContain('timeout_recovery');
+    const task = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: 'task-timeout-dead-letter' } });
+    expect(task.status).toBe('dead_letter');
+    expect(task.retry_count).toBe(2);
+    expect(JSON.parse(task.ext_meta || '{}')).toMatchObject({
+      timeout_recovery: { previous_run_id: 'run-timeout-exhausted', outcome: 'dead_letter', retry_count: 2, max_retries: 2 },
+    });
+    expect(JSON.parse(task.proof_data || '{}')).toMatchObject({ event: 'dead_letter', project_id: projectId });
+  });
+
   test('expired active lease prevents duplicate dispatch until stale takeover threshold is reached', async () => {
     const projectId = 'project-r4-lease-expired';
     await seedProject(prisma, projectId);
@@ -413,13 +748,103 @@ describe('V8-R4 daemon tick loop five-step rebuild', () => {
     expect(task.status).toBe('running');
   });
 
-  test('daemon source is V8-only: no legacy DAL/ignored DB/raw SQL and state changes use transitionTask', () => {
+  test('non-pm_audit completion uses FSM transition boundary instead of direct completed writes', async () => {
+    const projectId = 'project-r5-non-pm-audit-boundary';
+    await seedProject(prisma, projectId);
+    await prisma.agent.create({
+      data: {
+        id: 'agent-dev-r5-standard',
+        agent_id: 'long-coder-1',
+        project_id: projectId,
+        endpoint: 'mock://long-r5-standard',
+        lane: 'DEV',
+        dialect: 'hermes',
+        soul_prompt: '',
+        tools_allowed: '[]',
+        status: 'online',
+      },
+    });
+    await prisma.task.create({
+      data: {
+        id: 'task-r5-standard-boundary',
+        project_id: projectId,
+        title: 'Standard close through FSM boundary',
+        objective: 'non-pm_audit must not be completed by daemon direct Prisma status write',
+        lane_required: 'DEV',
+        status: 'running',
+        acceptance_mode: 'standard',
+      },
+    });
+    await prisma.run.create({
+      data: {
+        run_id: 'run-r5-standard-boundary',
+        project_id: projectId,
+        task_id: 'task-r5-standard-boundary',
+        agent_id: 'agent-dev-r5-standard',
+        worker_run_id: 'worker-r5-standard-boundary',
+        idempotency_key: 'project-r5-non-pm-audit-boundary:task-r5-standard-boundary:active',
+        status: 'running',
+        result_summary: JSON.stringify({ lease_token: 'lease-r5-standard-boundary' }),
+      },
+    });
+
+    const daemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      workerClient: {
+        dispatch: async () => undefined,
+        drainResults: async () => [{
+          project_id: projectId,
+          task_id: 'task-r5-standard-boundary',
+          worker_run_id: 'worker-r5-standard-boundary',
+          lease_token: 'lease-r5-standard-boundary',
+          summary: 'standard proof ready',
+          proof: { tests: ['r5-boundary'], result: 'passed' },
+        }],
+      },
+    });
+
+    const result = await daemon.tick();
+
+    expect(result.ingested_task_ids).toEqual(['task-r5-standard-boundary']);
+    expect(result.steps.find((step) => step.name === 'review')?.details).toContain('auto-completed:task-r5-standard-boundary');
+    const task = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: 'task-r5-standard-boundary' } });
+    expect(task.status).toBe('completed');
+    const audit = JSON.parse(task.proof_data || '{}');
+    expect(audit).toMatchObject({
+      event: 'review_pass',
+      from_status: 'review_pending',
+      to_status: 'completed',
+      project_id: projectId,
+      task_id: 'task-r5-standard-boundary',
+      proof: {
+        source: 'v8_daemon_tick_loop',
+        step: 'review',
+        transition_boundary: 'v8_transition_task_service',
+        reason: 'non_pm_audit_auto_complete_boundary',
+      },
+    });
+    const transitionAudits = await prisma.artifact.findMany({
+      where: { project_id: projectId, task_id: 'task-r5-standard-boundary', artifact_type: 'task_transition_audit' },
+      orderBy: { created_at: 'asc' },
+    });
+    expect(transitionAudits.map((artifact) => JSON.parse(artifact.payload_data || '{}').event)).toEqual([
+      'submit_completion',
+      'request_review',
+      'review_pass',
+    ]);
+    expect(await prisma.review.count({ where: { project_id: projectId, original_task_id: 'task-r5-standard-boundary' } })).toBe(0);
+  });
+
+  test('daemon source is V8-only: no legacy DAL/ignored DB/raw SQL and completed writes use transitionTask boundary', () => {
     const source = fs.readFileSync(path.join(repoRoot, 'src/daemon/v8_tick_loop.ts'), 'utf8');
     expect(source).toContain('transitionTask(');
     expect(source).toContain('V8RuntimeApiService');
     expect(source).not.toMatch(/\.\.\/db\/dal|better-sqlite3|sqlite3|data\/nexus\.db|prisma\/data\/nexus\.db|\$queryRaw|\$executeRaw/i);
     expect(source).toContain('archiveTaskGroup(');
-    expect(source).not.toMatch(/prisma\.task\.(update|updateMany)\([\s\S]*status\s*:/);
+    expect(source).not.toMatch(/prisma\.task\.(update|updateMany)\([\s\S]*status\s*:\s*['"]completed['"]/);
+    expect(source).not.toMatch(/taskTable\.updateMany\([\s\S]*status\s*:\s*['"]completed['"]/);
+    expect(source).not.toMatch(/data:\s*\{[\s\S]*status\s*:\s*['"]completed['"][\s\S]*\}\s*\}\);/);
     expect(source).not.toMatch(/prisma\.taskGroup\.(update|updateMany)\([\s\S]*status\s*:/);
   });
 });

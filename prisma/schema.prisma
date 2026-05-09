@@ -30,6 +30,7 @@ model Project {
   reviews         Review[]
   reports         Report[]
   projectCronjobs ProjectCronjob[]
+  reviewPolicies  ReviewPolicy[]
 
   @@map("nexus_projects")
 }
@@ -274,6 +275,28 @@ model Report {
   @@index([task_id])
   @@index([run_id])
   @@map("reports")
+}
+
+// ─── ReviewPolicy（审核策略 / reviewer 路由覆盖） ───────────────
+model ReviewPolicy {
+  id                String   @id @default(uuid())
+  project_id        String
+  policy_id         String
+  agent_id          String?  // optional worker agent override, e.g. long-coder-1
+  lane              String?  // optional lane override, e.g. DEV / REVIEW
+  reviewer_agent_id String
+  priority          Int      @default(0)
+  enabled           Boolean  @default(true)
+  policy_json       String?  // JSON: audit requirements / notes / future verdict constraints
+  created_at        DateTime @default(now())
+  updated_at        DateTime @updatedAt
+
+  project           Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  @@unique([project_id, policy_id])
+  @@index([project_id, enabled, agent_id, lane])
+  @@index([project_id, enabled, priority])
+  @@map("review_policies")
 }
 
 // ─── ProjectCronjob（项目级 Cron Registry） ───────────────────
