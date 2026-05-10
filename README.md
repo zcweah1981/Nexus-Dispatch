@@ -1,5 +1,5 @@
 <div align="center">
-  <img src="./docs/assets/nexus-hero.svg" alt="Nexus Dispatch" width="720" />
+  <img src="./docs/assets/nexus-hero.png" alt="Nexus Dispatch" width="720" />
   <h1>Nexus Dispatch</h1>
   <p><strong>One brain. Many hands. Zero trust.</strong></p>
   <p>
