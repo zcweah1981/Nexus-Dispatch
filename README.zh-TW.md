@@ -79,7 +79,7 @@ Nexus Dispatch 給你一個**永不打烊的 PM 大腦中樞**：
 
 *任務如何從建立到交付驗證，在 Nexus Dispatch 中流轉。PM 大腦中樞統一排程多 Agent，每個完成門控都要求可驗證的結構化證據。*
 
-![Nexus Dispatch 工作流全景 — 長任務不斷線、多 Agent 排程、證據閉環、全程可觀察](./docs/assets/nexus-product-flow.png)
+![Nexus Dispatch 工作流全景 — 長任務不斷線、多 Agent 排程、證據閉環、全程可觀察](./docs/assets/nexus-product-flow-zh-TW.png)
 
 > 💡 **核心優勢**：任務發射後無人值守運行。PM 大腦中樞自動解析 DAG 依賴、按泳道派發到最合適的 Agent，並在每個完成門控驗證結構化交付物——不需要人工盯盤。
 
@@ -105,7 +105,7 @@ Nexus Dispatch 給你一個**永不打烊的 PM 大腦中樞**：
 
 *單一大腦中樞、多個啞終端、API-only 資料流。透過 Telegram 和 WebUI 實現全程可觀察。*
 
-![Nexus Dispatch 架構 — PM 大腦中樞統一排程、多 Agent 協作、API 控制平面、證據閉環](./docs/assets/nexus-architecture.png)
+![Nexus Dispatch 架構 — PM 大腦中樞統一排程、多 Agent 協作、API 控制平面、證據閉環](./docs/assets/nexus-architecture-zh-TW.png)
 
 > 💡 **核心優勢**：一個大腦，多雙手。PM 大腦中樞掌握所有排程邏輯；Worker 是無狀態執行器。每次狀態流轉都經過 REST API，形成完整稽核鏈——全程可觀察、全程可驗證。
 
@@ -156,7 +156,7 @@ Nexus Dispatch 給你一個**永不打烊的 PM 大腦中樞**：
 
 ## 🧼 真實使用截圖
 
-*真實產品使用場景——Telegram 派單訊息 + WebUI 進度面板。聯絡人、執行時期 ID 和憑證已脫敏。每個 Agent 透過自己的 bot 報告，不洩露內部 ID。*
+*真實產品使用截圖——來自本地真實執行時的 WebUI 設定／註冊表頁面。公開前已遮蓋內部 policy ID、reviewer agent ID 與其他執行時敏感字串。*
 
 ![Nexus Dispatch 真實使用截圖 — Telegram 通知與 WebUI 面板，全程可觀察](./docs/assets/nexus-sanitized-usage-screenshot.png)
 
@@ -216,7 +216,7 @@ curl -i "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dis
 
 # 驗證：已認證請求應回傳 JSON
 curl -sS \
-  -H "Authorization: Bearer NEXUS_BEARER" \
+  -H "Authorization: Bearer $API_AUTH_TOKEN" \
   "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dispatch"
 ```
 
@@ -243,7 +243,7 @@ npm --prefix src/webui run dev
 ```bash
 curl -sS -X POST \
   "http://localhost:8000/api/v1/runtime/projects/nexus-dispatch/agents" \
-  -H "Authorization: Bearer NEXUS_BEARER" \
+  -H "Authorization: Bearer $API_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "my-worker-1",
@@ -265,7 +265,7 @@ Nexus Dispatch 在憑證和資料周圍執行嚴格邊界：
 
 - **儲存庫不含真實密鑰。** README、docker-compose 和 systemd 範例均使用 `$VARIABLE` 佔位符。從 `.env.example` 複製後在本地填寫。
 - **API-only 資料存取。** SQLite 僅在 API Server 內部可見。任何模組、Worker 或 UI 都不直接存取資料庫。
-- **每次請求 Bearer Token。** 所有 `/api/v1/*` 端點都需要 `Authorization: Bearer NEXUS_BEARER`；未認證請求會返回 `401`。
+- **每次請求 Bearer Token。** 所有 `/api/v1/*` 端點都需要 `Authorization: Bearer $API_AUTH_TOKEN`。未認證請求會回傳 `401`。
 - **每 Agent 獨立 Telegram Bot。** 每個 Agent 用自己的 bot token 發送通知。Daemon 從不使用共享 bot 或中心化 token。
 - **聊天不含敏感 ID。** Task、Run、Dispatch 和 Trace ID 留在資料庫和 Runtime Proof 中。群聊訊息僅為人類可讀的摘要。
 - **公網端點必須 TLS。** API 暴露到 localhost 以外時，必須透過反向代理（Nginx、Caddy、Cloudflare Tunnel）強制 HTTPS。

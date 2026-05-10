@@ -79,7 +79,7 @@ Nexus Dispatch gives you a **PM brain** that never sleeps:
 
 *How work flows through Nexus Dispatch — from task creation to verified delivery. A single PM Brain orchestrates multi-agent dispatch with proof-based gates at every stage.*
 
-![Nexus Dispatch product flow — long-running unattended workflows with multi-agent dispatch and proof-based delivery](./docs/assets/nexus-product-flow.png)
+![Nexus Dispatch product flow — long-running unattended workflows with multi-agent dispatch and proof-based delivery](./docs/assets/nexus-product-flow-en.png)
 
 > 💡 **Key advantage**: Tasks run unattended across hours or days. The PM Brain resolves DAG dependencies, dispatches to the right agent, and gates completion on verifiable proof — no manual babysitting required.
 
@@ -95,7 +95,7 @@ Nexus Dispatch gives you a **PM brain** that never sleeps:
 
 *System structure — single PM brain, multiple dumb terminals, API-only data flow. Full observability through Telegram + WebUI.*
 
-![Nexus Dispatch architecture — single PM Brain, multi-agent fleet, API control plane, evidence closed loop](./docs/assets/nexus-architecture.png)
+![Nexus Dispatch architecture — single PM Brain, multi-agent fleet, API control plane, evidence closed loop](./docs/assets/nexus-architecture-en.png)
 
 > 💡 **Key advantage**: One brain, many hands. The PM Brain holds all scheduling logic; workers are stateless executors. Every state transition goes through the REST API, creating a complete audit trail — fully observable, fully verifiable.
 
@@ -136,7 +136,7 @@ Nexus Dispatch gives you a **PM brain** that never sleeps:
 
 ## 🧼 Sanitized Usage Screenshot
 
-*Real product usage — Telegram dispatch messages + WebUI progress board. Contacts, runtime IDs, and credentials are redacted. Every agent reports through its own bot; no internal IDs leak into chat.*
+*Real product usage capture — sanitized WebUI settings/registry screen from a live local runtime. Internal policy IDs, reviewer agent IDs, and runtime-sensitive strings are redacted before publication.*
 
 ![Nexus Dispatch sanitized usage screenshot — Telegram notifications and WebUI dashboard with full observability](./docs/assets/nexus-sanitized-usage-screenshot.png)
 
@@ -196,7 +196,7 @@ curl -i "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dis
 
 # Verify: authenticated request should return JSON
 curl -sS \
-  -H "Authorization: Bearer NEXUS_BEARER" \
+  -H "Authorization: Bearer $API_AUTH_TOKEN" \
   "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dispatch"
 ```
 
@@ -223,7 +223,7 @@ npm --prefix src/webui run dev
 ```bash
 curl -sS -X POST \
   "http://localhost:8000/api/v1/runtime/projects/nexus-dispatch/agents" \
-  -H "Authorization: Bearer NEXUS_BEARER" \
+  -H "Authorization: Bearer $API_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "my-worker-1",
@@ -245,7 +245,7 @@ Nexus Dispatch enforces strict boundaries around credentials and data:
 
 - **No real secrets in the repo.** README, docker-compose, and systemd examples use `$VARIABLE` placeholders. Copy `.env.example` and fill values locally.
 - **API-only data access.** SQLite is internal to the API server. No module, worker, or UI gets direct DB access.
-- **Bearer token on every request.** All `/api/v1/*` endpoints require `Authorization: Bearer NEXUS_BEARER`. Unauthenticated requests return `401`.
+- **Bearer token on every request.** All `/api/v1/*` endpoints require `Authorization: Bearer $API_AUTH_TOKEN`. Unauthenticated requests return `401`.
 - **Per-agent Telegram bots.** Each agent sends notifications via its own bot token. The Daemon never uses a shared bot or central token.
 - **No sensitive IDs in chat.** Task, run, dispatch, and trace IDs stay in the database and runtime proof. Group chat messages are human-readable summaries only.
 - **TLS for public endpoints.** If the API is exposed beyond localhost, enforce HTTPS via reverse proxy (Nginx, Caddy, Cloudflare Tunnel).

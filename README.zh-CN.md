@@ -79,7 +79,7 @@ Nexus Dispatch 给你一个**永不打烊的 PM 大脑中枢**：
 
 *任务如何从创建到交付验证，在 Nexus Dispatch 中流转。PM 大脑中枢统一调度多 Agent，每个完成门控都要求可验证的结构化证据。*
 
-![Nexus Dispatch 工作流全景 — 长任务不断线、多 Agent 调度、证据闭环、全程可观察](./docs/assets/nexus-product-flow.png)
+![Nexus Dispatch 工作流全景 — 长任务不断线、多 Agent 调度、证据闭环、全程可观察](./docs/assets/nexus-product-flow-zh-CN.png)
 
 > 💡 **核心优势**：任务发射后无人值守运行。PM 大脑中枢自动解析 DAG 依赖、按泳道派发到最合适的 Agent，并在每个完成门控验证结构化交付物——不需要人工盯盘。
 
@@ -105,7 +105,7 @@ Nexus Dispatch 给你一个**永不打烊的 PM 大脑中枢**：
 
 *单一大脑中枢、多个哑终端、API-only 数据流。通过 Telegram 和 WebUI 实现全程可观察。*
 
-![Nexus Dispatch 架构 — PM 大脑中枢统一调度、多 Agent 协作、API 控制平面、证据闭环](./docs/assets/nexus-architecture.png)
+![Nexus Dispatch 架构 — PM 大脑中枢统一调度、多 Agent 协作、API 控制平面、证据闭环](./docs/assets/nexus-architecture-zh-CN.png)
 
 > 💡 **核心优势**：一个大脑，多双手。PM 大脑中枢掌握所有调度逻辑；Worker 是无状态执行器。每次状态流转都经过 REST API，形成完整审计链——全程可观察、全程可验证。
 
@@ -156,7 +156,7 @@ Nexus Dispatch 给你一个**永不打烊的 PM 大脑中枢**：
 
 ## 🧼 真实使用截图
 
-*真实产品使用场景——Telegram 派单消息 + WebUI 进度面板。联系人、运行时 ID 和凭据已脱敏。每个 Agent 通过自己的 bot 报告，不泄露内部 ID。*
+*真实产品使用截图——来自本地真实运行时的 WebUI 设置/注册表页面。公开前已遮盖内部 policy ID、reviewer agent ID 及其他运行时敏感字符串。*
 
 ![Nexus Dispatch 真实使用截图 — Telegram 通知与 WebUI 面板，全程可观察](./docs/assets/nexus-sanitized-usage-screenshot.png)
 
@@ -216,7 +216,7 @@ curl -i "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dis
 
 # 验证：已认证请求应返回 JSON
 curl -sS \
-  -H "Authorization: Bearer NEXUS_BEARER" \
+  -H "Authorization: Bearer $API_AUTH_TOKEN" \
   "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dispatch"
 ```
 
@@ -243,7 +243,7 @@ npm --prefix src/webui run dev
 ```bash
 curl -sS -X POST \
   "http://localhost:8000/api/v1/runtime/projects/nexus-dispatch/agents" \
-  -H "Authorization: Bearer NEXUS_BEARER" \
+  -H "Authorization: Bearer $API_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "my-worker-1",
@@ -265,7 +265,7 @@ Nexus Dispatch 在凭据和数据周围执行严格边界：
 
 - **仓库不含真实密钥。** README、docker-compose 和 systemd 示例均使用 `$VARIABLE` 占位符。从 `.env.example` 复制后在本地填写。
 - **API-only 数据访问。** SQLite 仅在 API Server 内部可见。任何模块、Worker 或 UI 都不直接访问数据库。
-- **每次请求 Bearer Token。** 所有 `/api/v1/*` 端点都需要 `Authorization: Bearer NEXUS_BEARER`；未认证请求会返回 `401`。
+- **每次请求 Bearer Token。** 所有 `/api/v1/*` 端点都需要 `Authorization: Bearer $API_AUTH_TOKEN`。未认证请求会返回 `401`。
 - **每 Agent 独立 Telegram Bot。** 每个 Agent 用自己的 bot token 发送通知。Daemon 从不使用共享 bot 或中心化 token。
 - **聊天不含敏感 ID。** Task、Run、Dispatch 和 Trace ID 留在数据库和 Runtime Proof 中。群聊消息仅为人类可读的摘要。
 - **公网端点必须 TLS。** API 暴露到 localhost 以外时，必须通过反向代理（Nginx、Caddy、Cloudflare Tunnel）强制 HTTPS。
