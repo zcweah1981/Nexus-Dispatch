@@ -145,7 +145,7 @@ curl -i "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dis
 
 # Verify: authenticated request should return JSON
 curl -sS \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer ***" \
   "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dispatch"
 ```
 
@@ -172,7 +172,7 @@ npm --prefix src/webui run dev
 ```bash
 curl -sS -X POST \
   "http://localhost:8000/api/v1/runtime/projects/nexus-dispatch/agents" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer ***" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "my-worker-1",
@@ -194,7 +194,7 @@ Nexus Dispatch enforces strict boundaries around credentials and data:
 
 - **No real secrets in the repo.** README, docker-compose, and systemd examples use `$VARIABLE` placeholders. Copy `.env.example` and fill values locally.
 - **API-only data access.** SQLite is internal to the API server. No module, worker, or UI gets direct DB access.
-- **Bearer token on every request.** All `/api/v1/*` endpoints require `Authorization: Bearer <token>`. Unauthenticated requests return `401`.
+- **Bearer token on every request.** All `/api/v1/*` endpoints require `Authorization: Bearer ***` . Unauthenticated requests return `401`.
 - **Per-agent Telegram bots.** Each agent sends notifications via its own bot token. The Daemon never uses a shared bot or central token.
 - **No sensitive IDs in chat.** Task, run, dispatch, and trace IDs stay in the database and runtime proof. Group chat messages are human-readable summaries only.
 - **TLS for public endpoints.** If the API is exposed beyond localhost, enforce HTTPS via reverse proxy (Nginx, Caddy, Cloudflare Tunnel).

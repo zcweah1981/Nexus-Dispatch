@@ -119,7 +119,7 @@ curl -sS \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/tasks/pending?project_id=${NEXUS_PROJECT_ID:-nexus-dispatch}"
 
 # SSE stream: should show connected/ping (timeout prevents blocking the terminal)
-timeout 5 curl -N -H "Authorization: Bearer $API_AUTH_TOKEN" "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/events/stream"
+timeout 5 curl -N -H "Authorization: Bearer ***" "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/events/stream"
 
 # WebUI
 curl -I "http://localhost:${NEXUS_WEBUI_PORT:-3030}/"
