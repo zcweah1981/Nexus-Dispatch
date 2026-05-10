@@ -1,6 +1,3 @@
-import { Task } from '../db/dal';
-import * as path from 'path';
-
 /** Minimal task shape returned by the API */
 interface ApiTask {
     id: string;
@@ -9,20 +6,60 @@ interface ApiTask {
     lane: string;
 }
 
+interface TelegramSessionSelection {
+    chat_id: string;
+    project_id: string;
+}
+
+interface SessionManagerOptions {
+    /**
+     * Guardrail hook for tests/future adapters: selecting a Telegram session must never
+     * start/stop/update cronjobs. Real cron mutations belong behind project_cronjobs.
+     */
+    onCronjobMutationAttempt?: (projectId: string, action: string) => Promise<void> | void;
+}
+
 /**
  * SessionManager — PM Core session isolation & state rehydration.
  *
- * V2: Fully API-driven. No direct SQLite / better-sqlite3 imports.
+ * V2: Fully API-driven. No legacy DB adapter imports.
  * All task reads go through the RESTful API layer, respecting the
- * data red-line: "SQLite 仅对 API Server 内部可见，对外绝对封闭".
+ * data red-line that storage is only visible inside the API Server.
  */
 export class SessionManager {
     private apiUrl: string;
     private authToken: string;
+    private readonly options: SessionManagerOptions;
+    private readonly telegramSessionSelections = new Map<string, string>();
 
-    constructor(apiUrl: string = process.env.NEXUS_API_URL || 'http://localhost:8000', authToken: string = process.env.NEXUS_AUTH_TOKEN || '') {
+    constructor(
+        apiUrl: string = process.env.NEXUS_API_URL || 'http://localhost:8000',
+        authToken: string = process.env.NEXUS_AUTH_TOKEN || '',
+        options: SessionManagerOptions = {},
+    ) {
         this.apiUrl = apiUrl;
         this.authToken = authToken;
+        this.options = options;
+    }
+
+    /**
+     * Select the current project for a Telegram chat/session.
+     *
+     * R7-T3 boundary: this is a pure selector. It must not start, stop, pause,
+     * resume, or otherwise mutate backend cronjobs. Cron lifecycle remains behind
+     * the project_cronjobs registry and explicit Runtime API/service calls.
+     */
+    public async selectTelegramSessionProject(chatId: string, projectId: string): Promise<TelegramSessionSelection> {
+        if (!chatId.trim()) throw new Error('chat_id is required');
+        if (!projectId.trim()) throw new Error('project_id is required');
+
+        this.telegramSessionSelections.set(chatId, projectId);
+        void this.options.onCronjobMutationAttempt;
+        return { chat_id: chatId, project_id: projectId };
+    }
+
+    public getSelectedTelegramSessionProject(chatId: string): string | undefined {
+        return this.telegramSessionSelections.get(chatId);
     }
 
     /**

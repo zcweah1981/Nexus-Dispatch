@@ -6,17 +6,10 @@
  */
 
 import { Router, Request, Response } from 'express';
-import DAL from '../db/dal';
 import { PrismaDAL } from '../db/prisma_dal';
-import { ReviewEngine } from '../engine/review_engine';
-import { v4 as uuidv4 } from 'uuid';
-import Ajv from 'ajv';
 import { stateEmitter } from './server';
 import { validateBody, sendError, ErrorCodes } from './middleware';
 import {
-  taskClaimSchema,
-  taskReleaseSchema,
-  submitProofSchema,
   controllerConfigUpdateSchema,
   blueprintCreateSchema,
   projectInitSchema,
@@ -24,11 +17,16 @@ import {
   taskCreateSchema,
   taskStatusUpdateSchema,
   runtimeProjectCreateSchema,
+  runtimeAgentRegisterSchema,
+  runtimeBlueprintFreezeSchema,
   runtimeBlueprintThawCurrentPhaseSchema,
   runtimeBlueprintAdvancePhaseSchema,
   runtimeTaskCreateSchema,
   runtimeRunCreateSchema,
   runtimeRunStatusUpdateSchema,
+  runtimeArtifactCreateSchema,
+  runtimeCronjobBindSchema,
+  runtimeCronjobStatusUpdateSchema,
   runtimeReportCreateSchema,
   runtimeReportStatusUpdateSchema,
   taskTransitionSchema,
@@ -44,9 +42,8 @@ import {
 import { transitionTask, TransitionTaskError } from '../services/v8_transition_task_service';
 import { V8RuntimeApiError, V8RuntimeApiService } from '../services/v8_runtime_api_service';
 
-const ajv = new Ajv();
-
-export function createApiRouter(dal: DAL, authToken: string = 'valid-token', prismaDal?: PrismaDAL) {
+export function createApiRouter(authToken: string = 'valid-token', prismaDal?: PrismaDAL) {
+  void authToken;
   const router = Router();
 
   // ═══════════════════════════════════════════════════════════════
@@ -92,6 +89,31 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
     }
   });
 
+  router.post('/runtime/projects/:projectId/agents', validateBody('runtimeAgentRegister', runtimeAgentRegisterSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    try {
+      const agent = await service.registerAgent(projectId, req.body);
+      stateEmitter.emit('state_change', { type: 'agent_registered', data: { project_id: projectId, agent_id: agent.agent_id, lane: agent.lane, status: agent.status } });
+      return res.status(201).json({ agent });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to register runtime project agent');
+    }
+  });
+
+  router.post('/runtime/blueprints/freeze', validateBody('runtimeBlueprintFreeze', runtimeBlueprintFreezeSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const result = await service.freezeBlueprint(req.body);
+      stateEmitter.emit('state_change', { type: 'blueprint_frozen', data: { project_id: result.project_id, blueprint_id: result.blueprint_id, status: result.status } });
+      return res.status(201).json({ result });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to freeze runtime blueprint');
+    }
+  });
+
   router.post('/runtime/tasks', validateBody('runtimeTaskCreate', runtimeTaskCreateSchema), async (req: Request, res: Response) => {
     const service = runtimeServiceOr503(res);
     if (!service) return;
@@ -105,6 +127,35 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
     }
   });
 
+  router.get('/runtime/tasks/pending', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.query.project_id as string | undefined;
+    if (!projectId) return sendError(res, 400, 'project_id query is required', ErrorCodes.BAD_REQUEST);
+    const lane = req.query.lane as string | undefined;
+    try {
+      const tasks = await service.listPendingTasks(projectId, lane ? { lane_required: lane } : undefined);
+      return res.status(200).json({ tasks, total: tasks.length });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to list pending runtime tasks');
+    }
+  });
+
+  router.post('/runtime/tasks/recover-timeouts', validateBody('taskRecoverTimeouts', taskRecoverTimeoutsSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, timeout_minutes } = req.body;
+    try {
+      const recoveredIds = await service.recoverTimeouts(project_id, timeout_minutes || 15);
+      if (recoveredIds.length > 0) {
+        stateEmitter.emit('state_change', { type: 'tasks_recovered', data: { project_id, task_ids: recoveredIds, count: recoveredIds.length } });
+      }
+      return res.status(200).json({ recovered: recoveredIds.length, task_ids: recoveredIds });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to recover runtime task timeouts');
+    }
+  });
+
   router.get('/runtime/tasks/:id', async (req: Request, res: Response) => {
     const service = runtimeServiceOr503(res);
     if (!service) return;
@@ -115,6 +166,33 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
       return res.status(200).json({ task });
     } catch (error: any) {
       return sendRuntimeError(res, error, 'Failed to get runtime task');
+    }
+  });
+
+  router.post('/runtime/tasks/:id/claim', validateBody('taskClaimById', taskClaimByIdSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id } = req.body;
+    try {
+      const task = await service.claimTask(project_id, req.params.id as string);
+      stateEmitter.emit('state_change', { type: 'task_status_updated', data: { project_id, task_id: task.id, old_status: 'created', new_status: 'dispatched' } });
+      return res.status(200).json({ task });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to claim runtime task');
+    }
+  });
+
+  router.patch('/runtime/tasks/:id/status', validateBody('taskStatusUpdate', taskStatusUpdateSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, status, proof_data, ext_meta } = req.body;
+    try {
+      const existing = await service.getTask(project_id, req.params.id as string);
+      const task = await service.setTaskStatus(project_id, req.params.id as string, status, { proof_data, ext_meta });
+      stateEmitter.emit('state_change', { type: 'task_status_updated', data: { project_id, task_id: task.id, old_status: existing.status, new_status: status } });
+      return res.status(200).json({ task });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to update runtime task status');
     }
   });
 
@@ -133,6 +211,12 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
           created_task_ids: result.created_task_ids,
         },
       });
+      if (result.created_group) {
+        stateEmitter.emit('state_change', {
+          type: 'group_status_updated',
+          data: { project_id: result.project_id, group_id: result.group_id, status: 'active' },
+        });
+      }
       return res.status(result.created_task_ids.length > 0 || result.created_group ? 201 : 200).json({ result });
     } catch (error: any) {
       return sendRuntimeError(res, error, 'Failed to thaw runtime blueprint phase');
@@ -155,9 +239,51 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
           created_task_ids: result.created_task_ids,
         },
       });
+      if (result.created_group) {
+        stateEmitter.emit('state_change', {
+          type: 'group_status_updated',
+          data: { project_id: result.project_id, group_id: result.group_id, status: 'active' },
+        });
+      }
       return res.status(result.created_task_ids.length > 0 || result.created_group ? 201 : 200).json({ result });
     } catch (error: any) {
       return sendRuntimeError(res, error, 'Failed to advance runtime blueprint phase');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/agents', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    const lane = req.query.lane as string | undefined;
+    const status = req.query.status as string | undefined;
+    try {
+      const agents = await service.listAgents(projectId, {
+        ...(lane ? { lane } : {}),
+        ...(status ? { status } : {}),
+      });
+      return res.status(200).json({ agents });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to list runtime project agents');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/review-policies', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    const enabled = req.query.enabled === undefined ? undefined : req.query.enabled === 'true';
+    const agentId = req.query.agent_id as string | undefined;
+    const lane = req.query.lane as string | undefined;
+    try {
+      const reviewPolicies = await service.listReviewPolicies(projectId, {
+        ...(enabled !== undefined ? { enabled } : {}),
+        ...(agentId ? { agent_id: agentId } : {}),
+        ...(lane ? { lane } : {}),
+      });
+      return res.status(200).json({ review_policies: reviewPolicies, reviewPolicies });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to list runtime review policies');
     }
   });
 
@@ -187,12 +313,92 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
     }
   });
 
+  router.post('/runtime/artifacts', validateBody('runtimeArtifactCreate', runtimeArtifactCreateSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, ...artifactInput } = req.body;
+    try {
+      const artifact = await service.createArtifact(project_id, artifactInput);
+      stateEmitter.emit('state_change', {
+        type: 'artifact_created',
+        data: { project_id, id: artifact.id, run_id: artifact.run_id, task_id: artifact.task_id, artifact_type: artifact.artifact_type },
+      });
+      return res.status(201).json({ artifact });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to create runtime artifact');
+    }
+  });
+
+  router.post('/runtime/projects/cronjobs', validateBody('runtimeCronjobBind', runtimeCronjobBindSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, ...cronjobInput } = req.body;
+    try {
+      const cronjob = await service.bindCronjob(project_id, cronjobInput);
+      stateEmitter.emit('state_change', { type: 'project_cronjob_bound', data: { project_id, cronjob_id: cronjob.cronjob_id, status: cronjob.status } });
+      return res.status(201).json({ cronjob });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to bind runtime project cronjob');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/cronjobs', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    const status = req.query.status as string | undefined;
+    const enabledPolicy = req.query.enabled_policy as string | undefined;
+    const eligible = req.query.eligible === 'true';
+    const maintenance = req.query.maintenance === 'true';
+    try {
+      const cronjobs = eligible
+        ? await service.listEligibleCronjobs(projectId, { maintenance })
+        : await service.listCronjobs(projectId, {
+          ...(status ? { status } : {}),
+          ...(enabledPolicy ? { enabled_policy: enabledPolicy } : {}),
+        });
+      return res.status(200).json({ cronjobs });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to list runtime project cronjobs');
+    }
+  });
+
+  router.patch('/runtime/projects/:projectId/cronjobs/:cronjobId/status', validateBody('runtimeCronjobStatusUpdate', runtimeCronjobStatusUpdateSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    const cronjobId = req.params.cronjobId as string;
+    const { status, config_json, last_run_at } = req.body;
+    try {
+      const cronjob = await service.updateCronjobStatus(projectId, cronjobId, status, {
+        config_json,
+        last_run_at: last_run_at ? new Date(last_run_at) : undefined,
+      });
+      stateEmitter.emit('state_change', { type: 'project_cronjob_status_updated', data: { project_id: projectId, cronjob_id: cronjob.cronjob_id, status: cronjob.status } });
+      return res.status(200).json({ cronjob });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to update runtime project cronjob status');
+    }
+  });
+
   router.post('/runtime/reports', validateBody('runtimeReportCreate', runtimeReportCreateSchema), async (req: Request, res: Response) => {
     const service = runtimeServiceOr503(res);
     if (!service) return;
     const { project_id, ...reportInput } = req.body;
     try {
       const report = await service.createReport(project_id, reportInput);
+      stateEmitter.emit('state_change', {
+        type: report.message_type === 'group_summary' ? 'group_summary_created' : 'report_created',
+        data: {
+          project_id,
+          id: report.id,
+          report_id: report.id,
+          message_type: report.message_type,
+          status: report.status,
+          summary: report.summary,
+          created_at: report.created_at,
+        },
+      });
       return res.status(201).json({ report });
     } catch (error: any) {
       return sendRuntimeError(res, error, 'Failed to create runtime report');
@@ -205,6 +411,18 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
     const { project_id, status, delivery_json } = req.body;
     try {
       const report = await service.updateReportStatus(project_id, req.params.id as string, status, { delivery_json });
+      stateEmitter.emit('state_change', {
+        type: report.message_type === 'group_summary' ? 'group_summary_created' : 'report_status_updated',
+        data: {
+          project_id,
+          id: report.id,
+          report_id: report.id,
+          message_type: report.message_type,
+          status: report.status,
+          summary: report.summary,
+          updated_at: new Date().toISOString(),
+        },
+      });
       return res.status(200).json({ report });
     } catch (error: any) {
       return sendRuntimeError(res, error, 'Failed to update runtime report status');
@@ -241,198 +459,73 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
   //  T2.1: 任务管理 API（5个接口）
   // ═══════════════════════════════════════════════════════════════
 
-  // ─── POST /api/v1/tasks — 创建任务 ─────────────────────────────────
+  // ─── POST /api/v1/tasks — V8 compatibility shim; writes through Runtime service ──
   router.post('/tasks', validateBody('taskCreate', taskCreateSchema), async (req: Request, res: Response) => {
-    if (!prismaDal) {
-      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
-    }
-    const { project_id, title, objective, lane_required, task_group_id,
-            payload, payload_schema, acceptance_criteria, dependencies, reviewer,
-            acceptance_mode, max_retries } = req.body;
-
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, ...taskInput } = req.body;
     try {
-      // Verify project exists
-      const project = await prismaDal.getProject(project_id);
-      if (!project) {
-        return sendError(res, 404, `Project '${project_id}' not found`, ErrorCodes.NOT_FOUND);
-      }
-
-      // If task_group_id provided (group_id string like 'test-p1'), verify it exists and resolve to internal UUID
-      let resolvedTaskGroupId: string | undefined;
-      if (task_group_id) {
-        const group = await prismaDal.getTaskGroup(task_group_id);
-        if (!group) {
-          return sendError(res, 404, `TaskGroup '${task_group_id}' not found`, ErrorCodes.NOT_FOUND);
-        }
-        resolvedTaskGroupId = group.id;
-      }
-
-      const dependencyIds: string[] = dependencies ?? [];
-      if (dependencyIds.length > 0) {
-        const dependencyTasks = await prismaDal.client.task.findMany({
-          where: { project_id, id: { in: dependencyIds } },
-          select: { id: true },
-        });
-        if (dependencyTasks.length !== dependencyIds.length) {
-          return sendError(res, 400, 'Task dependencies must belong to the same project', ErrorCodes.BAD_REQUEST);
-        }
-      }
-
-      const task = await prismaDal.client.$transaction(async (tx) => {
-        const created = await tx.task.create({
-          data: {
-            project_id,
-            title,
-            objective,
-            lane_required,
-            status: 'created',
-            ...(resolvedTaskGroupId && { task_group_id: resolvedTaskGroupId }),
-            ...(payload && { payload: JSON.stringify(payload) }),
-            ...(payload_schema && { payload_schema: JSON.stringify(payload_schema) }),
-            ...(acceptance_criteria && { acceptance_criteria: JSON.stringify(acceptance_criteria) }),
-            ...(reviewer && { reviewer }),
-            ...(acceptance_mode && { acceptance_mode }),
-            ...(max_retries !== undefined && { max_retries }),
-          },
-        });
-        if (dependencyIds.length > 0) {
-          await tx.taskDependency.createMany({
-            data: dependencyIds.map((dependsOnId) => ({
-              project_id,
-              task_id: created.id,
-              depends_on_id: dependsOnId,
-              dependency_type: 'blocks',
-            })),
-          });
-        }
-        return created;
-      });
-
+      const task = await service.createTask(project_id, taskInput);
       stateEmitter.emit('state_change', {
         type: 'task_created',
-        data: { task_id: task.id, project_id, title, status: 'created' },
+        data: { task_id: task.id, project_id, title: task.title, status: task.status },
       });
-
       return res.status(201).json({ task });
     } catch (error: any) {
-      return sendError(res, 500, 'Failed to create task', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+      return sendRuntimeError(res, error, 'Failed to create task');
     }
   });
 
-  // ─── GET /api/v1/tasks/pending — 获取可派发任务（含 DAG 依赖检查）──
+  // ─── GET /api/v1/tasks/pending — V8 compatibility shim; reads through Runtime service ──
   router.get('/tasks/pending', async (req: Request, res: Response) => {
-    if (!prismaDal) {
-      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
-    }
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
     const projectId = req.query.project_id as string | undefined;
+    if (!projectId) return sendError(res, 400, 'project_id query is required', ErrorCodes.BAD_REQUEST);
     const lane = req.query.lane as string | undefined;
 
     try {
-      // 1. Find all 'created' tasks (optionally filtered by project and lane)
-      const whereClause: any = { status: 'created' };
-      if (projectId) whereClause.project_id = projectId;
-      if (lane) whereClause.lane_required = lane;
-
-      const createdTasks = await prismaDal.client.task.findMany({
-        where: whereClause,
-        orderBy: { created_at: 'asc' },
-        include: {
-          outgoing_deps: {
-            where: projectId ? { project_id: projectId } : undefined,
-            select: { depends_on_id: true },
-          },
-        },
-      });
-
-      // 2. DAG dependency check: only return tasks whose ALL dependencies are completed
-      // outgoing_deps = TaskDependency rows where task_id = this task (this task depends on others)
-      const dispatchable = [];
-      for (const task of createdTasks) {
-        if (!task.outgoing_deps || task.outgoing_deps.length === 0) {
-          dispatchable.push(task);
-          continue;
-        }
-
-        // Check each dependency — all must be 'completed'
-        const depIds = task.outgoing_deps.map((d: any) => d.depends_on_id);
-        const depTasks = await prismaDal.client.task.findMany({
-          where: { id: { in: depIds }, project_id: task.project_id },
-          select: { id: true, status: true },
-        });
-
-        const allCompleted = depTasks.length === depIds.length && depTasks.every((d: any) => d.status === 'completed');
-        if (allCompleted) {
-          dispatchable.push(task);
-        }
-      }
-
-      // Strip internal relation info from response
-      const cleaned = dispatchable.map((t: any) => {
-        const { incoming_deps, outgoing_deps, project, taskGroup, runs, ...rest } = t;
-        return rest;
-      });
-
-      return res.status(200).json({ tasks: cleaned, total: cleaned.length });
+      const tasks = await service.listPendingTasks(projectId, lane ? { lane_required: lane } : undefined);
+      return res.status(200).json({ tasks, total: tasks.length });
     } catch (error: any) {
-      return sendError(res, 500, 'Failed to fetch pending tasks', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+      return sendRuntimeError(res, error, 'Failed to fetch pending tasks');
     }
   });
 
-  // ─── GET /api/v1/tasks/:id — 单任务详情 ─────────────────────────────
+  // ─── GET /api/v1/tasks/:id — V8 compatibility shim; project scoped ──
   router.get('/tasks/:id', async (req: Request, res: Response) => {
-    if (!prismaDal) {
-      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
-    }
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
     const taskId = req.params.id as string;
     const projectId = req.query.project_id as string | undefined;
+    if (!projectId) return sendError(res, 400, 'project_id query is required', ErrorCodes.BAD_REQUEST);
 
     try {
-      const task = projectId
-        ? await prismaDal.getTaskInProject(taskId, projectId)
-        : await prismaDal.getTask(taskId);
-
-      if (!task) {
-        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
-      }
-
+      const task = await service.getTask(projectId, taskId);
       return res.status(200).json({ task });
     } catch (error: any) {
-      return sendError(res, 500, 'Failed to get task', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+      return sendRuntimeError(res, error, 'Failed to get task');
     }
   });
 
-  // ─── PATCH /api/v1/tasks/:id/status — 状态更新 ──────────────────────
+  // ─── PATCH /api/v1/tasks/:id/status — V8 compatibility shim; writes through Runtime service ──
   router.patch('/tasks/:id/status', validateBody('taskStatusUpdate', taskStatusUpdateSchema), async (req: Request, res: Response) => {
-    if (!prismaDal) {
-      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
-    }
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
     const taskId = req.params.id as string;
-    const { status, proof_data, ext_meta } = req.body;
+    const { project_id, status, proof_data, ext_meta } = req.body;
+    if (!project_id) return sendError(res, 400, 'project_id body field is required', ErrorCodes.BAD_REQUEST);
 
     try {
-      const existing = await prismaDal.getTask(taskId);
-      if (!existing) {
-        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
-      }
-
-      // Build update data
-      const updateData: any = { status };
-      if (proof_data !== undefined) updateData.proof_data = proof_data;
-      if (ext_meta !== undefined) updateData.ext_meta = ext_meta;
-
-      const updated = await prismaDal.client.task.update({
-        where: { id: taskId },
-        data: updateData,
-      });
-
+      const existing = await service.getTask(project_id, taskId);
+      const updated = await service.setTaskStatus(project_id, taskId, status, { proof_data, ext_meta });
       stateEmitter.emit('state_change', {
         type: 'task_status_updated',
         data: { task_id: taskId, old_status: existing.status, new_status: status },
       });
-
       return res.status(200).json({ task: updated });
     } catch (error: any) {
-      return sendError(res, 500, 'Failed to update task status', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+      return sendRuntimeError(res, error, 'Failed to update task status');
     }
   });
 
@@ -489,125 +582,7 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
     }
   });
 
-  // ─── POST /api/v1/tasks/claim ─────────────────────────────────────
-  router.post('/tasks/claim', validateBody('taskClaim', taskClaimSchema), (req: Request, res: Response) => {
-    try {
-      const tx = (dal as any).db.transaction(() => {
-        const stmt = (dal as any).db.prepare(`
-          UPDATE nexus_tasks
-          SET status = 'dispatched'
-          WHERE id = (
-            SELECT id FROM nexus_tasks
-            WHERE status = 'created'
-            LIMIT 1
-          )
-          RETURNING *;
-        `);
-        return stmt.get();
-      });
-      const task = tx();
-
-      if (!task) {
-        return sendError(res, 404, 'No tasks available to claim', ErrorCodes.NOT_FOUND);
-      }
-      return res.status(200).json({ task });
-    } catch (error: any) {
-      return sendError(res, 500, 'Failed to claim task', ErrorCodes.INTERNAL_ERROR, { message: error.message });
-    }
-  });
-
-  // ─── POST /api/v1/tasks/:id/release ───────────────────────────────
-  router.post('/tasks/:id/release', validateBody('taskRelease', taskReleaseSchema), (req: Request, res: Response) => {
-    const taskId = req.params.id as string;
-    try {
-      const tx = (dal as any).db.transaction(() => {
-        (dal as any).db.prepare(`
-          UPDATE nexus_tasks
-          SET status = 'created', retry_count = retry_count + 1
-          WHERE id = ?
-        `).run(taskId);
-      });
-      tx();
-      return res.status(200).json({ message: 'Task released' });
-    } catch (error: any) {
-      return sendError(res, 500, 'Failed to release task', ErrorCodes.INTERNAL_ERROR, { message: error.message });
-    }
-  });
-
-  // ─── POST /api/v1/tasks/:id/submit_proof ──────────────────────────
-  router.post('/tasks/:id/submit_proof', validateBody('submitProof', submitProofSchema), (req: Request, res: Response) => {
-    const taskId = req.params.id as string;
-    const { run_id, artifact_type, payload } = req.body;
-
-    const task = dal.getTask(taskId);
-    if (!task) {
-      return sendError(res, 404, 'Task not found', ErrorCodes.NOT_FOUND);
-    }
-
-    const run = dal.getRun(run_id);
-    if (!run) {
-      return sendError(res, 404, 'Run not found', ErrorCodes.NOT_FOUND);
-    }
-
-    if (run.task_id !== taskId) {
-      return sendError(res, 400, 'Run does not belong to this task', ErrorCodes.BAD_REQUEST, { run_task_id: run.task_id, requested_task_id: taskId });
-    }
-
-    if (run.status !== 'running') {
-      return sendError(res, 400, 'Run is not in running state', ErrorCodes.BAD_REQUEST, { run_status: run.status });
-    }
-
-    if (task.status !== 'dispatched' && task.status !== 'created') {
-      return sendError(res, 400, `Cannot submit proof for task in ${task.status} state`, ErrorCodes.BAD_REQUEST, { task_status: task.status });
-    }
-
-    // Schema validation against task's payload_schema
-    if (task.payload_schema && Object.keys(task.payload_schema).length > 0) {
-      try {
-        const validate = ajv.compile(task.payload_schema);
-        const isValid = validate(payload) as boolean;
-        if (!isValid) {
-          const errors = validate.errors?.map(e => ({
-            field: (e.instancePath || '/').replace(/^\//, '') || 'root',
-            message: e.message || 'Validation failed',
-            params: e.params,
-          }));
-          return sendError(res, 422, 'Payload validation failed', ErrorCodes.VALIDATION_ERROR, errors);
-        }
-      } catch (err) {
-        return sendError(res, 500, 'Invalid schema defined in task', ErrorCodes.INTERNAL_ERROR);
-      }
-    }
-
-    try {
-      const tx = (dal as any).db.transaction(() => {
-        const updateRunStmt = (dal as any).db.prepare(`
-          UPDATE nexus_runs SET status = 'success', ended_at = CURRENT_TIMESTAMP WHERE run_id = ?
-        `);
-        updateRunStmt.run(run_id);
-
-        const updateTaskStmt = (dal as any).db.prepare(`
-          UPDATE nexus_tasks SET status = 'validating' WHERE id = ?
-        `);
-        updateTaskStmt.run(taskId);
-
-        const insertArtifactStmt = (dal as any).db.prepare(`
-          INSERT INTO nexus_artifacts (id, run_id, artifact_type, payload_data) VALUES (?, ?, ?, ?)
-        `);
-        insertArtifactStmt.run(uuidv4(), run_id, artifact_type, JSON.stringify(payload));
-
-        try {
-          stateEmitter.emit('state_change', { type: 'run_status_updated', data: { run_id, status: 'success' } });
-          stateEmitter.emit('state_change', { type: 'task_status_updated', data: { task_id: taskId, status: 'validating' } });
-        } catch (err) {}
-      });
-      tx();
-
-      return res.status(201).json({ message: 'Proof submitted successfully, task is now validating' });
-    } catch (err: any) {
-      return sendError(res, 500, 'Database transaction failed', ErrorCodes.INTERNAL_ERROR, { message: err.message });
-    }
-  });
+  // V8-R10: legacy direct-DB task claim/release/submit_proof routes retired from production router.
 
   // ─── GET /api/v1/controllers — 列出所有 FSM 控制器 ────────────────
   router.get('/controllers', async (req: Request, res: Response) => {
@@ -688,170 +663,71 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
   //  T3.1: Daemon Tick API（4个接口）
   // ═══════════════════════════════════════════════════════════════
 
-  // ─── POST /api/v1/tasks/recover-timeouts — 超时任务回收 ──────────
-  // 注册在 /tasks/:id/claim 之前，避免 Express 路由冲突
+  // ─── POST /api/v1/tasks/recover-timeouts — V8 compatibility shim ──
   router.post('/tasks/recover-timeouts', validateBody('taskRecoverTimeouts', taskRecoverTimeoutsSchema), async (req: Request, res: Response) => {
-    if (!prismaDal) {
-      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
-    }
-    const timeoutMinutes = req.body.timeout_minutes || 15;
-    const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, timeout_minutes } = req.body;
+    if (!project_id) return sendError(res, 400, 'project_id body field is required', ErrorCodes.BAD_REQUEST);
 
     try {
-      // 查找 dispatched 且有 running run 超过阈值的任务
-      const staleTasks = await prismaDal.client.task.findMany({
-        where: {
-          status: 'dispatched',
-          runs: {
-            some: {
-              status: 'running',
-              started_at: { lt: cutoff },
-            },
-          },
-        },
-      });
-
-      const recoveredIds: string[] = [];
-      for (const task of staleTasks) {
-        // 原子恢复：task → created, runs → failed
-        await prismaDal.client.$transaction(async (tx: any) => {
-          await tx.task.update({
-            where: { id: task.id },
-            data: { status: 'created' },
-          });
-          await tx.run.updateMany({
-            where: { task_id: task.id, status: 'running' },
-            data: { status: 'failed', error_stack: 'Timeout: recovered by daemon', ended_at: new Date() },
-          });
-        });
-        recoveredIds.push(task.id);
-      }
-
+      const recoveredIds = await service.recoverTimeouts(project_id, timeout_minutes || 15);
       if (recoveredIds.length > 0) {
-        stateEmitter.emit('state_change', {
-          type: 'tasks_recovered',
-          data: { task_ids: recoveredIds, count: recoveredIds.length },
-        });
+        stateEmitter.emit('state_change', { type: 'tasks_recovered', data: { task_ids: recoveredIds, count: recoveredIds.length } });
       }
-
       return res.status(200).json({ recovered: recoveredIds.length, task_ids: recoveredIds });
     } catch (error: any) {
-      return sendError(res, 500, 'Failed to recover timed-out tasks', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+      return sendRuntimeError(res, error, 'Failed to recover timed-out tasks');
     }
   });
 
-  // ─── POST /api/v1/tasks/:id/claim — 原子 claim 特定任务 ──────────
+  // ─── POST /api/v1/tasks/:id/claim — V8 compatibility shim ──
   router.post('/tasks/:id/claim', validateBody('taskClaimById', taskClaimByIdSchema), async (req: Request, res: Response) => {
-    if (!prismaDal) {
-      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
-    }
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
     const taskId = req.params.id as string;
+    const { project_id } = req.body;
+    if (!project_id) return sendError(res, 400, 'project_id body field is required', ErrorCodes.BAD_REQUEST);
 
     try {
-      // 原子 claim：在事务内检查状态并更新，防止竞态
-      const claimed = await prismaDal.client.$transaction(async (tx: any) => {
-        const task = await tx.task.findUnique({ where: { id: taskId } });
-        if (!task) return null;
-        if (task.status !== 'created') return 'ALREADY_CLAIMED';
-        return await tx.task.update({
-          where: { id: taskId },
-          data: { status: 'dispatched' },
-        });
-      });
-
-      if (claimed === null) {
-        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
-      }
-      if (claimed === 'ALREADY_CLAIMED') {
-        return sendError(res, 409, `Task '${taskId}' is not in 'created' state (already claimed)`, ErrorCodes.BAD_REQUEST);
-      }
-
-      stateEmitter.emit('state_change', {
-        type: 'task_status_updated',
-        data: { task_id: taskId, old_status: 'created', new_status: 'dispatched' },
-      });
-
+      const claimed = await service.claimTask(project_id, taskId);
+      stateEmitter.emit('state_change', { type: 'task_status_updated', data: { task_id: taskId, old_status: 'created', new_status: 'dispatched' } });
       return res.status(200).json({ task: claimed });
     } catch (error: any) {
-      return sendError(res, 500, 'Failed to claim task', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+      return sendRuntimeError(res, error, 'Failed to claim task');
     }
   });
 
-  // ─── POST /api/v1/runs — 创建 Run 记录 ─────────────────────────
+  // ─── POST /api/v1/runs — V8 compatibility shim ──
   router.post('/runs', validateBody('runCreate', runCreateSchema), async (req: Request, res: Response) => {
-    if (!prismaDal) {
-      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
-    }
-    const { task_id, agent_id, idempotency_key } = req.body;
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { project_id, ...runInput } = req.body;
+    if (!project_id) return sendError(res, 400, 'project_id body field is required', ErrorCodes.BAD_REQUEST);
 
     try {
-      // 1. 校验 task 存在
-      const task = await prismaDal.getTask(task_id);
-      if (!task) {
-        return sendError(res, 404, `Task '${task_id}' not found`, ErrorCodes.NOT_FOUND);
-      }
-
-      // 2. 解析 agent_id（人类可读 ID → UUID PK）
-      const agent = await prismaDal.client.agent.findUnique({ where: { agent_id } });
-      if (!agent) {
-        return sendError(res, 404, `Agent '${agent_id}' not found`, ErrorCodes.NOT_FOUND);
-      }
-
-      // 3. 创建 Run（agent_id 使用 UUID PK）
-      const run = await prismaDal.client.run.create({
-        data: {
-          task_id,
-          agent_id: agent.id,
-          idempotency_key: idempotency_key || `run-${task_id}-${Date.now()}`,
-          status: 'running',
-        },
-      });
-
-      stateEmitter.emit('state_change', {
-        type: 'run_created',
-        data: { run_id: run.run_id, task_id, agent_id },
-      });
-
+      const run = await service.createRun(project_id, runInput);
+      stateEmitter.emit('state_change', { type: 'run_created', data: { run_id: run.run_id, task_id: run.task_id, agent_id: run.agent_id } });
       return res.status(201).json({ run });
     } catch (error: any) {
-      if (error.code === 'P2002') {
-        return sendError(res, 409, 'Duplicate idempotency_key', ErrorCodes.BAD_REQUEST);
-      }
-      return sendError(res, 500, 'Failed to create run', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+      return sendRuntimeError(res, error, 'Failed to create run');
     }
   });
 
-  // ─── PATCH /api/v1/runs/:id/status — Run 状态更新 ────────────────
+  // ─── PATCH /api/v1/runs/:id/status — V8 compatibility shim ──
   router.patch('/runs/:id/status', validateBody('runStatusUpdate', runStatusUpdateSchema), async (req: Request, res: Response) => {
-    if (!prismaDal) {
-      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
-    }
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
     const runId = req.params.id as string;
-    const { status, error_stack } = req.body;
+    const { project_id, status, error_stack, result_summary } = req.body;
+    if (!project_id) return sendError(res, 400, 'project_id body field is required', ErrorCodes.BAD_REQUEST);
 
     try {
-      const existing = await prismaDal.client.run.findUnique({ where: { run_id: runId } });
-      if (!existing) {
-        return sendError(res, 404, `Run '${runId}' not found`, ErrorCodes.NOT_FOUND);
-      }
-
-      const updated = await prismaDal.client.run.update({
-        where: { run_id: runId },
-        data: {
-          status,
-          ...(error_stack !== undefined && { error_stack }),
-          ended_at: status !== 'running' ? new Date() : undefined,
-        },
-      });
-
-      stateEmitter.emit('state_change', {
-        type: 'run_status_updated',
-        data: { run_id: runId, status },
-      });
-
-      return res.status(200).json({ run: updated });
+      const run = await service.updateRunStatus(project_id, runId, status, { error_stack, result_summary });
+      stateEmitter.emit('state_change', { type: 'run_status_updated', data: { run_id: runId, status } });
+      return res.status(200).json({ run });
     } catch (error: any) {
-      return sendError(res, 500, 'Failed to update run status', ErrorCodes.INTERNAL_ERROR, { message: error.message });
+      return sendRuntimeError(res, error, 'Failed to update run status');
     }
   });
 
@@ -1091,203 +967,7 @@ export function createApiRouter(dal: DAL, authToken: string = 'valid-token', pri
     }
   });
 
-  // ═══════════════════════════════════════════════════════════════
-  //  T3.3: 动态审核派单引擎（3个接口）
-  // ═══════════════════════════════════════════════════════════════
-
-  // ─── POST /api/v1/tasks/:id/submit_proof_v2 — PrismaDAL 驱动的 proof 提交 ──
-  router.post('/tasks/:id/submit_proof_v2', validateBody('submitProof', submitProofSchema), async (req: Request, res: Response) => {
-    if (!prismaDal) {
-      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
-    }
-    const taskId = req.params.id as string;
-    const { run_id, artifact_type, payload } = req.body;
-
-    try {
-      // 1. Validate task and run
-      const task = await prismaDal.getTask(taskId);
-      if (!task) {
-        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
-      }
-
-      const run = await (prismaDal as any).prisma.run.findUnique({ where: { run_id } });
-      if (!run) {
-        return sendError(res, 404, `Run '${run_id}' not found`, ErrorCodes.NOT_FOUND);
-      }
-
-      if (run.task_id !== taskId) {
-        return sendError(res, 400, 'Run does not belong to this task', ErrorCodes.BAD_REQUEST);
-      }
-
-      if (run.status !== 'running') {
-        return sendError(res, 400, 'Run is not in running state', ErrorCodes.BAD_REQUEST, { run_status: run.status });
-      }
-
-      if (task.status !== 'dispatched' && task.status !== 'created') {
-        return sendError(res, 400, `Cannot submit proof for task in ${task.status} state`, ErrorCodes.BAD_REQUEST);
-      }
-
-      // 2. Schema validation (if defined)
-      if (task.payload_schema) {
-        try {
-          const schema = JSON.parse(task.payload_schema);
-          if (schema && Object.keys(schema).length > 0) {
-            const validate = ajv.compile(schema);
-            const isValid = validate(payload) as boolean;
-            if (!isValid) {
-              const errors = validate.errors?.map(e => ({
-                field: (e.instancePath || '/').replace(/^\//, '') || 'root',
-                message: e.message || 'Validation failed',
-                params: e.params,
-              }));
-              return sendError(res, 422, 'Payload validation failed', ErrorCodes.VALIDATION_ERROR, errors);
-            }
-          }
-        } catch { /* invalid schema, skip validation */ }
-      }
-
-      // 3. Update run → success, create artifact
-      await (prismaDal as any).prisma.run.update({
-        where: { run_id },
-        data: { status: 'success', ended_at: new Date() },
-      });
-
-      const newArtifact = await (prismaDal as any).prisma.artifact.create({
-        data: {
-          run_id,
-          artifact_type,
-          payload: JSON.stringify(payload),
-        },
-      });
-
-      // T4.2: Broadcast artifact creation to SSE subscribers
-      stateEmitter.emit('state_change', {
-        type: 'artifact_created',
-        data: {
-          id: newArtifact.id,
-          run_id,
-          artifact_type,
-          task_id: taskId,
-          payload: typeof payload === 'object' ? payload : { raw: payload },
-          created_at: new Date().toISOString(),
-        },
-      });
-
-      // 4. Transition task to 'validating'
-      await prismaDal.updateTaskStatus(taskId, 'validating');
-
-      stateEmitter.emit('state_change', {
-        type: 'run_status_updated',
-        data: { run_id, status: 'success' },
-      });
-      stateEmitter.emit('state_change', {
-        type: 'task_status_updated',
-        data: { task_id: taskId, status: 'validating' },
-      });
-
-      // 5. evaluate_task: acceptance_mode routing
-      const engine = new ReviewEngine(prismaDal);
-      const evalResult = await engine.evaluate_task(taskId, task.project_id);
-
-      stateEmitter.emit('state_change', {
-        type: 'task_status_updated',
-        data: { task_id: taskId, old_status: 'validating', new_status: evalResult.new_status },
-      });
-
-      if (evalResult.review_spawned) {
-        stateEmitter.emit('state_change', {
-          type: 'review_spawned',
-          data: {
-            task_id: taskId,
-            review_task_id: evalResult.review_task_id,
-            review_run_id: evalResult.review_run_id,
-          },
-        });
-      }
-
-      return res.status(201).json({
-        message: 'Proof submitted successfully',
-        review_spawned: evalResult.review_spawned,
-        ...(evalResult.review_task_id && { review_task_id: evalResult.review_task_id }),
-        ...(evalResult.review_run_id && { review_run_id: evalResult.review_run_id }),
-        new_status: evalResult.new_status,
-      });
-    } catch (error: any) {
-      return sendError(res, 500, 'Submit proof failed', ErrorCodes.INTERNAL_ERROR, { message: error.message });
-    }
-  });
-
-  // ─── POST /api/v1/tasks/:id/accept — 审核通过 ─────────────────────
-  router.post('/tasks/:id/accept', validateBody('taskAccept', taskAcceptSchema), async (req: Request, res: Response) => {
-    if (!prismaDal) {
-      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
-    }
-    const taskId = req.params.id as string;
-    const { reviewer_id, note } = req.body;
-
-    try {
-      const task = await prismaDal.getTask(taskId);
-      if (!task) {
-        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
-      }
-
-      if (task.status !== 'review_spawned' && task.status !== 'validating') {
-        return sendError(res, 400, `Cannot accept task in '${task.status}' state, expected 'review_spawned' or 'validating'`, ErrorCodes.BAD_REQUEST);
-      }
-
-      const engine = new ReviewEngine(prismaDal);
-      const result = await engine.accept_review(taskId, reviewer_id || 'unknown', note);
-
-      stateEmitter.emit('state_change', {
-        type: 'task_accepted',
-        data: { task_id: taskId, reviewer_id: reviewer_id || 'unknown' },
-      });
-
-      const updatedTask = await prismaDal.getTask(taskId);
-      return res.status(200).json({ task: updatedTask });
-    } catch (error: any) {
-      if (error.message.startsWith('INVALID_STATE:')) {
-        return sendError(res, 400, error.message.replace('INVALID_STATE: ', ''), ErrorCodes.BAD_REQUEST);
-      }
-      return sendError(res, 500, 'Accept failed', ErrorCodes.INTERNAL_ERROR, { message: error.message });
-    }
-  });
-
-  // ─── POST /api/v1/tasks/:id/reject — 审核驳回 ─────────────────────
-  router.post('/tasks/:id/reject', validateBody('taskReject', taskRejectSchema), async (req: Request, res: Response) => {
-    if (!prismaDal) {
-      return sendError(res, 503, 'PrismaDAL not initialized', ErrorCodes.INTERNAL_ERROR);
-    }
-    const taskId = req.params.id as string;
-    const { reviewer_id, reason } = req.body;
-
-    try {
-      const task = await prismaDal.getTask(taskId);
-      if (!task) {
-        return sendError(res, 404, `Task '${taskId}' not found`, ErrorCodes.NOT_FOUND);
-      }
-
-      if (task.status !== 'review_spawned' && task.status !== 'validating') {
-        return sendError(res, 400, `Cannot reject task in '${task.status}' state, expected 'review_spawned' or 'validating'`, ErrorCodes.BAD_REQUEST);
-      }
-
-      const engine = new ReviewEngine(prismaDal);
-      const result = await engine.reject_review(taskId, reviewer_id || 'unknown', reason);
-
-      stateEmitter.emit('state_change', {
-        type: 'task_rejected',
-        data: { task_id: taskId, reason, retry_count: result.retry_count },
-      });
-
-      const updatedTask = await prismaDal.getTask(taskId);
-      return res.status(200).json({ task: updatedTask });
-    } catch (error: any) {
-      if (error.message.startsWith('INVALID_STATE:')) {
-        return sendError(res, 400, error.message.replace('INVALID_STATE: ', ''), ErrorCodes.BAD_REQUEST);
-      }
-      return sendError(res, 500, 'Reject failed', ErrorCodes.INTERNAL_ERROR, { message: error.message });
-    }
-  });
+  // V8-R10: legacy dynamic review /tasks/:id submit_proof_v2/accept/reject routes retired.
 
   return router;
 }

@@ -15,25 +15,32 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 
 // ─── SSE Event Types ──────────────────────────────────────────────
 
+// V8_SSE_REPORT_TASK_GROUP_EVENTS_CONTRACT: one API-only EventSource stream carries report/task/group updates.
 export type SSEEventType =
   | 'connected'
   | 'ping'
   // Task lifecycle
   | 'task_created'
   | 'task_status_updated'
+  | 'task_transitioned'
   | 'task_acknowledged'
   | 'task_accepted'
   | 'task_rejected'
   | 'tasks_batch_injected'
   | 'tasks_recovered'
+  // Group lifecycle
+  | 'group_status_updated'
+  | 'group_summary_created'
   // Run lifecycle
   | 'run_created'
   | 'run_status_updated'
   // Agent lifecycle
   | 'agent_registered'
   | 'agent_status_updated'
-  // Artifact
+  // Artifact / report lifecycle
   | 'artifact_created'
+  | 'report_created'
+  | 'report_status_updated'
   // Review
   | 'review_spawned'
   // Controller

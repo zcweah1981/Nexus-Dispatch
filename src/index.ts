@@ -1,6 +1,6 @@
 import { NexusToolchain } from './pm-core/NexusToolchain';
 import { createServer } from './api/server';
-import DAL from './db/dal';
+import { PrismaDAL } from './db/prisma_dal';
 
 export { NexusToolchain };
 
@@ -8,21 +8,35 @@ export { NexusToolchain };
  * Nexus Dispatch API Server entry point.
  *
  * Schema initialization is handled by Prisma migrations (`npx prisma migrate deploy`).
- * The inline CREATE TABLE SQL that was previously here has been removed —
- * it was a V1-era artifact that bypassed the migration system.
- *
- * To initialize a fresh database:
- *   1. Set DATABASE_URL in .env to point to your SQLite file
- *   2. Run: npx prisma migrate deploy
- *   3. Start this server: npm start
+ * Production startup uses the V8 PrismaDAL boundary; legacy DAL is retained only as
+ * archived reference under src/db/dal.ts and is not opened here.
  */
 if (require.main === module) {
-    const dal = new DAL();
+    const authToken = process.env.API_AUTH_TOKEN || process.env.PM_API_TOKEN || 'valid-token';
+    const dbUrl = process.env.DATABASE_URL;
+    if (!dbUrl) {
+        throw new Error('DATABASE_URL is required for Nexus Dispatch API Server startup');
+    }
+    const prismaDal = new PrismaDAL(dbUrl);
 
-    const app = createServer(dal);
-    const PORT = process.env.PORT || 8000;
-
-    app.listen(PORT, () => {
-        console.log(`Nexus Dispatch API Server running on port ${PORT}`);
-    });
+    prismaDal.initPragmas()
+        .then(() => {
+            const app = createServer(authToken, prismaDal);
+            const PORT = process.env.PORT || 8000;
+            const server = app.listen(PORT, () => {
+                console.log(`Nexus Dispatch API Server running on port ${PORT}`);
+            });
+            const shutdown = async () => {
+                server.close();
+                await prismaDal.close();
+                process.exit(0);
+            };
+            process.on('SIGINT', shutdown);
+            process.on('SIGTERM', shutdown);
+        })
+        .catch(async (error) => {
+            console.error('Failed to start Nexus Dispatch API Server', error);
+            await prismaDal.close();
+            process.exit(1);
+        });
 }

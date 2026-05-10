@@ -263,6 +263,7 @@ model Report {
   summary       String?
   payload_json  String   // JSON: visible/report payload
   delivery_json String?  // JSON: channel, proof, lock, suppression reason
+  dedupe_key    String?  // project-scoped idempotency key to suppress duplicate sends
   created_at    DateTime @default(now())
   updated_at    DateTime @updatedAt
 
@@ -270,6 +271,7 @@ model Report {
   task          Task?    @relation(fields: [task_id], references: [id], onDelete: SetNull)
   run           Run?     @relation(fields: [run_id], references: [run_id], onDelete: SetNull)
 
+  @@unique([project_id, dedupe_key])
   @@index([project_id, status])
   @@index([project_id, message_type])
   @@index([task_id])
@@ -307,6 +309,7 @@ model ProjectCronjob {
   name          String
   schedule      String
   status        String   @default("paused") // active, paused, disabled
+  enabled_policy String  @default("always_on") // always_on, manual, project_active, maintenance_only
   owner_agent_id String?
   config_json   String?  // JSON: toolsets, prompt template, delivery policy
   last_run_at   DateTime?

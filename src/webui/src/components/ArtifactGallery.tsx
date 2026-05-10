@@ -1,12 +1,13 @@
 /**
  * ArtifactGallery — Real-time artifact display with SSE-driven card appending.
  *
- * AC: ArtifactGallery 新产物卡片实时追加
+ * AC: ArtifactGallery 新产物卡片实时追加；V8_ARTIFACT_GALLERY_PROOF_SUMMARY_CONTRACT
  *
+ * V8 WebUI boundary: only render Proof 摘要 for humans. Raw proof hidden in Runtime DB/artifacts.
  * Data flow:
- *  1. On mount, fetches recent artifacts from API (if available)
- *  2. Subscribes to SSE via useSSE hook
- *  3. On artifact_created events, prepends new artifact card
+ *  1. Subscribes to SSE via useSSE hook
+ *  2. On artifact_created events, prepends a sanitized artifact card
+ *  3. Visible cards show safe summary fields only; complete proof remains in backend audit storage
  */
 
 import React, { useState, useEffect } from 'react';
@@ -14,13 +15,27 @@ import { useSSE } from '../hooks/useSSE';
 
 // ─── Types ─────────────────────────────────────────────────────────
 
+interface ArtifactPayload {
+  proof_summary?: string;
+  summary?: string;
+  result?: string;
+  command?: string;
+  path?: string;
+  title?: string;
+  status?: string;
+}
+
 interface Artifact {
   id: string;
-  run_id: string;
   artifact_type: string;
   task_id?: string;
-  payload?: any;
+  payload?: ArtifactPayload | string | null;
   created_at?: string;
+}
+
+function appendArtifactCard(next: Artifact, current: Artifact[]): Artifact[] {
+  if (!next.id || current.some((artifact) => artifact.id === next.id)) return current;
+  return [next, ...current];
 }
 
 // ─── Artifact type → icon/color map ────────────────────────────────
@@ -32,15 +47,53 @@ const TYPE_STYLES: Record<string, { icon: string; color: string; label: string }
   'test_result': { icon: '✅', color: 'border-emerald-500/40 bg-emerald-900/20', label: 'Test Result' },
   'code_review': { icon: '🔍', color: 'border-yellow-500/40 bg-yellow-900/20', label: 'Code Review' },
   'deploy_proof': { icon: '🚀', color: 'border-orange-500/40 bg-orange-900/20', label: 'Deploy Proof' },
+  'report_proof': { icon: '📨', color: 'border-cyan-500/40 bg-cyan-900/20', label: 'Report Proof' },
+  'group_summary': { icon: '📊', color: 'border-sky-500/40 bg-sky-900/20', label: 'Group Summary' },
+  'worker_result_ingest': { icon: '📥', color: 'border-indigo-500/40 bg-indigo-900/20', label: 'Worker Result' },
 };
 
 function getTypeStyle(type: string) {
   return TYPE_STYLES[type] || { icon: '📦', color: 'border-gray-500/40 bg-gray-800/50', label: type };
 }
 
-function truncateHash(hash: string, len = 7): string {
-  if (!hash) return '—';
-  return hash.length > len ? hash.substring(0, len) : hash;
+function cleanVisibleText(value: unknown): string {
+  if (typeof value !== 'string') return '';
+  return value
+    .replace(/\b(project|dispatch|run|trace|worker)[-_ ]?id\b\s*[:=]\s*\S+/gi, '[已隐藏]')
+    .replace(/\b(bearer|authorization)\s+\S+/gi, '[已隐藏]')
+    .replace(/\b(sk-|ghp_|xoxb-)\S+/gi, '[已隐藏]')
+    .replace(/-100\d{6,}/g, '[已隐藏]')
+    .replace(/[{}[\]"]/g, '')
+    .slice(0, 180)
+    .trim();
+}
+
+function getProofSummary(payload: Artifact['payload']): string {
+  if (!payload) return 'Proof 已存系统';
+  if (typeof payload === 'string') return cleanVisibleText(payload) || 'Proof 已存系统';
+
+  const candidates = [
+    payload.proof_summary,
+    payload.summary,
+    payload.result,
+    payload.command,
+    payload.status,
+    payload.path,
+  ];
+
+  for (const candidate of candidates) {
+    const safe = cleanVisibleText(candidate);
+    if (safe) return safe;
+  }
+
+  return 'Proof 已存系统';
+}
+
+function getVisibleArtifactTitle(artifact: Artifact): string {
+  const payloadTitle = typeof artifact.payload === 'object' && artifact.payload
+    ? cleanVisibleText(artifact.payload.title)
+    : '';
+  return payloadTitle || getTypeStyle(artifact.artifact_type).label;
 }
 
 // ─── Component ─────────────────────────────────────────────────────
@@ -55,25 +108,42 @@ const ArtifactGallery: React.FC = () => {
     if (!sse.lastEvent) return;
     const event = sse.lastEvent;
 
-    if (event.type === 'artifact_created') {
-      const { id, run_id, artifact_type, task_id, payload, created_at } = event.data;
-      if (!id) return;
-
-      setArtifacts((prev) => {
-        // Avoid duplicates
-        if (prev.some((a) => a.id === id)) return prev;
-        return [
-          {
-            id,
-            run_id,
-            artifact_type,
-            task_id,
-            payload,
-            created_at: created_at || new Date().toISOString(),
-          },
-          ...prev,
-        ];
-      });
+    // V8_SSE_REPORT_GROUP_EVENT_HANDLERS: report/group SSE events are rendered as sanitized proof cards.
+    switch (event.type) {
+      case 'artifact_created': {
+        const { id, artifact_type, task_id, payload, created_at } = event.data;
+        setArtifacts((prev) => appendArtifactCard({
+          id,
+          artifact_type,
+          task_id,
+          payload,
+          created_at: created_at || new Date().toISOString(),
+        }, prev));
+        break;
+      }
+      case 'report_created':
+      case 'report_status_updated': {
+        const { id, report_id, message_type, status, summary, created_at, updated_at } = event.data;
+        setArtifacts((prev) => appendArtifactCard({
+          id: id || report_id,
+          artifact_type: 'report_proof',
+          payload: { title: message_type || 'Report', proof_summary: summary, status },
+          created_at: updated_at || created_at || new Date().toISOString(),
+        }, prev));
+        break;
+      }
+      case 'group_summary_created': {
+        const { id, report_id, group_id, summary, status, created_at } = event.data;
+        setArtifacts((prev) => appendArtifactCard({
+          id: id || report_id || `group_summary:${group_id}`,
+          artifact_type: 'group_summary',
+          payload: { title: 'Group Summary', proof_summary: summary || 'Group summary proof sent', status },
+          created_at: created_at || new Date().toISOString(),
+        }, prev));
+        break;
+      }
+      default:
+        break;
     }
   }, [sse.lastEvent]);
 
@@ -123,7 +193,6 @@ const ArtifactGallery: React.FC = () => {
         <div className="columns-1 md:columns-2 lg:columns-3 gap-4 space-y-4">
           {artifacts.map((art) => {
             const style = getTypeStyle(art.artifact_type);
-            const sha = truncateHash(art.run_id);
             const timeStr = art.created_at
               ? new Date(art.created_at).toLocaleTimeString()
               : '';
@@ -137,9 +206,9 @@ const ArtifactGallery: React.FC = () => {
                 <div className="px-4 py-2 flex justify-between items-center border-b border-gray-700/50 bg-black/20">
                   <span className="flex items-center gap-1.5 text-xs font-bold text-purple-400">
                     <span>{style.icon}</span>
-                    <span>{art.task_id || art.run_id}</span>
+                    <span>{getVisibleArtifactTitle(art)}</span>
                   </span>
-                  <span className="text-[10px] font-mono text-gray-500">{sha}</span>
+                  <span className="text-[10px] font-mono text-gray-500">Proof 摘要</span>
                 </div>
 
                 {/* Card body */}
@@ -151,16 +220,10 @@ const ArtifactGallery: React.FC = () => {
                     {timeStr && <span className="text-[10px] font-mono text-gray-500">{timeStr}</span>}
                   </div>
 
-                  {/* Payload preview */}
-                  {art.payload && (
-                    <div className="mt-2 bg-black/30 rounded p-2 text-[10px] font-mono text-gray-400 overflow-hidden max-h-[80px]">
-                      <pre className="whitespace-pre-wrap break-all">
-                        {typeof art.payload === 'string'
-                          ? art.payload.substring(0, 200)
-                          : JSON.stringify(art.payload, null, 2).substring(0, 200)}
-                      </pre>
-                    </div>
-                  )}
+                  <div className="mt-2 bg-black/30 rounded p-2 text-[10px] font-mono text-gray-300 overflow-hidden max-h-[80px]">
+                    {getProofSummary(art.payload)}
+                  </div>
+                  <div className="mt-2 text-[10px] font-mono text-gray-500">Proof 已存系统</div>
                 </div>
               </div>
             );

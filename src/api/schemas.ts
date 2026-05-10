@@ -166,15 +166,16 @@ export const taskCreateSchema = {
 export const taskStatusUpdateSchema = {
   $id: 'taskStatusUpdate',
   type: 'object',
-  required: ['status'],
+  required: ['project_id', 'status'],
   properties: {
+    project_id: { type: 'string', minLength: 1 },
     status: {
       type: 'string',
-      enum: ['created', 'dispatched', 'accepted', 'review_spawned',
-             'completion_pending', 'validating', 'completed', 'failed'],
+      enum: ['created', 'dispatched', 'running', 'completion_pending', 'review_pending',
+             'completed', 'retry_ready', 'blocked', 'dead_letter', 'cancelled'],
     },
-    proof_data: { type: 'string', maxLength: 65536 },
-    ext_meta:   { type: 'string', maxLength: 65536 },
+    proof_data: { } as any,
+    ext_meta:   { } as any,
   },
   additionalProperties: false,
 } as const;
@@ -190,6 +191,34 @@ export const runtimeProjectCreateSchema = {
     status:         { type: 'string', maxLength: 64 },
     pm_soul_prompt: { type: 'string', maxLength: 8192 },
     channel_config: { type: 'object', additionalProperties: true },
+  },
+  additionalProperties: false,
+} as const;
+
+export const runtimeAgentRegisterSchema = {
+  $id: 'runtimeAgentRegister',
+  type: 'object',
+  required: ['agent_id', 'endpoint', 'lane', 'dialect', 'soul_prompt', 'tools_allowed'],
+  properties: {
+    id:            { type: 'string', minLength: 1 },
+    agent_id:      { type: 'string', minLength: 1, maxLength: 128 },
+    endpoint:      { type: 'string', minLength: 1, maxLength: 512 },
+    lane:          { type: 'string', minLength: 1, maxLength: 64 },
+    dialect:       { type: 'string', minLength: 1, maxLength: 64 },
+    soul_prompt:   { type: 'string', maxLength: 8192 },
+    tools_allowed: { } as any,
+    status:        { type: 'string', enum: ['online', 'offline', 'disabled'] },
+  },
+  additionalProperties: false,
+} as const;
+
+export const runtimeBlueprintFreezeSchema = {
+  $id: 'runtimeBlueprintFreeze',
+  type: 'object',
+  required: ['project_id', 'blueprint'],
+  properties: {
+    project_id: { type: 'string', minLength: 1 },
+    blueprint:  { type: 'object', additionalProperties: true },
   },
   additionalProperties: false,
 } as const;
@@ -279,6 +308,55 @@ export const runtimeRunStatusUpdateSchema = {
   additionalProperties: false,
 } as const;
 
+export const runtimeArtifactCreateSchema = {
+  $id: 'runtimeArtifactCreate',
+  type: 'object',
+  required: ['project_id', 'run_id', 'artifact_type', 'payload'],
+  properties: {
+    project_id:     { type: 'string', minLength: 1 },
+    id:             { type: 'string', minLength: 1 },
+    task_id:        { type: 'string' },
+    run_id:         { type: 'string', minLength: 1 },
+    artifact_type:  { type: 'string', minLength: 1, maxLength: 128 },
+    payload:        { } as any,
+    payload_data:   { } as any,
+    proof:          { } as any,
+    path:           { type: 'string', maxLength: 1024 },
+    metadata_json:  { } as any,
+  },
+  additionalProperties: false,
+} as const;
+
+export const runtimeCronjobBindSchema = {
+  $id: 'runtimeCronjobBind',
+  type: 'object',
+  required: ['project_id', 'cronjob_id', 'name', 'schedule'],
+  properties: {
+    project_id:      { type: 'string', minLength: 1 },
+    id:              { type: 'string', minLength: 1 },
+    cronjob_id:      { type: 'string', minLength: 1, maxLength: 256 },
+    name:            { type: 'string', minLength: 1, maxLength: 256 },
+    schedule:        { type: 'string', minLength: 1, maxLength: 256 },
+    status:          { type: 'string', enum: ['active', 'paused', 'disabled'] },
+    enabled_policy:  { type: 'string', enum: ['always_on', 'manual', 'project_active', 'maintenance_only'] },
+    owner_agent_id:  { type: 'string' },
+    config_json:     { } as any,
+  },
+  additionalProperties: false,
+} as const;
+
+export const runtimeCronjobStatusUpdateSchema = {
+  $id: 'runtimeCronjobStatusUpdate',
+  type: 'object',
+  required: ['status'],
+  properties: {
+    status:      { type: 'string', enum: ['active', 'paused', 'disabled'] },
+    config_json: { } as any,
+    last_run_at: { type: 'string', minLength: 1 },
+  },
+  additionalProperties: false,
+} as const;
+
 export const runtimeReportCreateSchema = {
   $id: 'runtimeReportCreate',
   type: 'object',
@@ -293,6 +371,8 @@ export const runtimeReportCreateSchema = {
     summary:       { type: 'string', maxLength: 4096 },
     payload_json:  { } as any,
     delivery_json: { } as any,
+    dedupe_key:    { type: 'string', minLength: 1, maxLength: 512 },
+    visible_message: { type: 'string', maxLength: 4096 },
   },
   additionalProperties: false,
 } as const;
@@ -403,7 +483,10 @@ export const taskRejectSchema = {
 export const taskClaimByIdSchema = {
   $id: 'taskClaimById',
   type: 'object',
-  properties: {},
+  required: ['project_id'],
+  properties: {
+    project_id: { type: 'string', minLength: 1 },
+  },
   additionalProperties: false,
 } as const;
 
@@ -411,11 +494,18 @@ export const taskClaimByIdSchema = {
 export const runCreateSchema = {
   $id: 'runCreate',
   type: 'object',
-  required: ['task_id', 'agent_id'],
+  required: ['project_id', 'task_id', 'agent_id'],
   properties: {
+    project_id:      { type: 'string', minLength: 1 },
+    run_id:          { type: 'string', minLength: 1 },
     task_id:         { type: 'string', minLength: 1 },
     agent_id:        { type: 'string', minLength: 1 },
+    dispatch_id:     { type: 'string' },
+    worker_run_id:   { type: 'string' },
     idempotency_key: { type: 'string' },
+    status:          { type: 'string', enum: ['created', 'running', 'success', 'cancelled', 'error', 'failed'] },
+    error_stack:     { type: 'string', maxLength: 65536 },
+    result_summary:  { type: 'string', maxLength: 65536 },
   },
   additionalProperties: false,
 } as const;
@@ -424,7 +514,9 @@ export const runCreateSchema = {
 export const taskRecoverTimeoutsSchema = {
   $id: 'taskRecoverTimeouts',
   type: 'object',
+  required: ['project_id'],
   properties: {
+    project_id: { type: 'string', minLength: 1 },
     timeout_minutes: { type: 'integer', minimum: 1, maximum: 1440 },
   },
   additionalProperties: false,
@@ -434,10 +526,12 @@ export const taskRecoverTimeoutsSchema = {
 export const runStatusUpdateSchema = {
   $id: 'runStatusUpdate',
   type: 'object',
-  required: ['status'],
+  required: ['project_id', 'status'],
   properties: {
-    status:      { type: 'string', enum: ['running', 'success', 'failed'] },
-    error_stack: { type: 'string', maxLength: 65536 },
+    project_id:     { type: 'string', minLength: 1 },
+    status:         { type: 'string', enum: ['created', 'running', 'success', 'cancelled', 'error', 'failed'] },
+    error_stack:    { type: 'string', maxLength: 65536 },
+    result_summary: { type: 'string', maxLength: 65536 },
   },
   additionalProperties: false,
 } as const;

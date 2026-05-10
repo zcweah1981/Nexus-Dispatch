@@ -1,0 +1,41 @@
+[Unit]
+Description=Nexus Dispatch Daemon (V8 Runtime Tick Loop)
+Documentation=https://github.com/zcweah1981/Nexus-Dispatch
+After=network-online.target nexus-dispatch-api.service
+Wants=network-online.target
+Requires=nexus-dispatch-api.service
+PartOf=nexus-dispatch-api.service
+
+[Service]
+Type=simple
+User=nexus
+Group=nexus
+WorkingDirectory=/opt/projects/nexus-dispatch
+EnvironmentFile=/opt/projects/nexus-dispatch/.env
+Environment=NODE_ENV=production
+Environment=PM_API_URL=http://127.0.0.1:8000/api/v1
+ExecStartPre=/usr/bin/test -n "${DATABASE_URL}"
+ExecStartPre=/usr/bin/test -n "${PM_API_TOKEN}"
+ExecStart=/usr/bin/node dist/daemon/main.js
+Restart=on-failure
+RestartSec=10
+StartLimitBurst=3
+StartLimitIntervalSec=300
+TimeoutStopSec=30
+
+# Daemon does not expose an HTTP health endpoint. Use journalctl plus
+# scripts/health-check.sh to verify recent [Tick Summary] activity.
+LimitNOFILE=65536
+MemoryMax=256M
+
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/projects/nexus-dispatch/data /opt/projects/nexus-dispatch/logs
+PrivateTmp=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexus-daemon
+
+[Install]
+WantedBy=multi-user.target

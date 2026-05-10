@@ -85,4 +85,24 @@ describe('T5.2 PM Core Session Isolation & State Rehydration (API-driven)', () =
         const result = await badManager.rehydrateState('ghost_project', '# Ghost');
         expect(result).toContain('No active tasks found');
     });
+
+    it('R7-T3: selecting a Telegram session only records the current project selector and never mutates cronjob registry', async () => {
+        const calls: Array<{ projectId: string; action: string }> = [];
+        const selectorManager = new SessionManager(`http://localhost:${mockServerPort}`, 'test-token', {
+            onCronjobMutationAttempt: async (projectId: string, action: string) => {
+                calls.push({ projectId, action });
+                throw new Error(`cronjob mutation should not be called: ${action}`);
+            },
+        });
+
+        const selected = await selectorManager.selectTelegramSessionProject('telegram-chat-42', 'api_verification_proj');
+
+        expect(selected).toEqual({
+            chat_id: 'telegram-chat-42',
+            project_id: 'api_verification_proj',
+        });
+        expect(selectorManager.getSelectedTelegramSessionProject('telegram-chat-42')).toBe('api_verification_proj');
+        expect(calls).toEqual([]);
+        expect(receivedRequests).toEqual([]);
+    });
 });

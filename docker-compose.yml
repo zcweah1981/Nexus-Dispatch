@@ -1,58 +1,91 @@
-version: "3.8"
-
 services:
-  nexus-db:
-    image: alpine:latest
-    command: ["tail", "-f", "/dev/null"]
-    volumes:
-      - ./data:/data
-    networks:
-      - nexus-internal
-
   nexus-api:
     build:
       context: .
       dockerfile: Dockerfile
+      target: api
+    image: nexus-dispatch-api:local
+    command: ["api"]
+    env_file:
+      - .env
     environment:
-      - DATABASE_URL=${DATABASE_URL:-sqlite:///data/nexus.db}
-      - JWT_SECRET=${JWT_SECRET:-secret}
+      NODE_ENV: production
+      PORT: 8000
+      DATABASE_URL: ${DATABASE_URL:-file:/data/nexus.db}
+      API_AUTH_TOKEN: ${API_AUTH_TOKEN:-replace-with-long-random-token}
+      PM_API_TOKEN: ${PM_API_TOKEN:-replace-with-long-random-token}
+      NEXUS_PROJECT_ID: ${NEXUS_PROJECT_ID:-nexus-dispatch}
     ports:
-      - "8001:8000"
+      - "${NEXUS_API_PORT:-8000}:8000"
     volumes:
-      - .:/app
-      - ./data:/data
+      - nexus-sqlite-data:/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "node -e \"const http=require('http'); const token=process.env.API_AUTH_TOKEN||process.env.PM_API_TOKEN||'replace-with-long-random-token'; const req=http.get({hostname:'127.0.0.1',port:process.env.PORT||8000,path:'/api/v1/runtime/tasks/pending?project_id='+(process.env.NEXUS_PROJECT_ID||'nexus-dispatch'),headers:{Authorization:'Bearer '+token},timeout:3000},res=>process.exit(res.statusCode<500?0:1)); req.on('error',()=>process.exit(1)); req.on('timeout',()=>{req.destroy();process.exit(1);});\""
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
     networks:
       - nexus-internal
-      - proxy
-    depends_on:
-      - nexus-db
 
   nexus-daemon:
     build:
       context: .
       dockerfile: Dockerfile
+      target: api
+    image: nexus-dispatch-api:local
+    command: ["daemon"]
+    env_file:
+      - .env
     environment:
-      - DATABASE_URL=${DATABASE_URL:-sqlite:///data/nexus.db}
-      - API_BASE_URL=http://nexus-api:8000
+      NODE_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-file:/data/nexus.db}
+      PM_API_URL: http://nexus-api:8000/api/v1
+      PM_API_TOKEN: ${PM_API_TOKEN:-replace-with-long-random-token}
+      NEXUS_PROJECT_ID: ${NEXUS_PROJECT_ID:-nexus-dispatch}
+      TICK_INTERVAL: ${TICK_INTERVAL:-5000}
+      DISPATCH_TIMEOUT: ${DISPATCH_TIMEOUT:-10000}
+      RECOVERY_TIMEOUT_MINUTES: ${RECOVERY_TIMEOUT_MINUTES:-15}
+      AGENT_NOTIFICATIONS: ${AGENT_NOTIFICATIONS:-{}}
     volumes:
-      - .:/app
-      - ./data:/data
+      - nexus-sqlite-data:/data
+    depends_on:
+      nexus-api:
+        condition: service_healthy
+    restart: unless-stopped
     networks:
       - nexus-internal
-    depends_on:
-      - nexus-db
 
   nexus-webui:
-    image: nginx:alpine
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: webui
+    image: nexus-dispatch-webui:local
     ports:
-      - "3030:80"
-    volumes:
-      - ./src/webui/dist:/usr/share/nginx/html:ro
+      - "${NEXUS_WEBUI_PORT:-3030}:80"
+    depends_on:
+      nexus-api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1/ >/dev/null 2>&1"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
     networks:
       - nexus-internal
+
+volumes:
+  nexus-sqlite-data:
+    name: nexus-dispatch-sqlite
 
 networks:
   nexus-internal:
     driver: bridge
-  proxy:
-    external: true

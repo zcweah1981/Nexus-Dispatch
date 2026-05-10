@@ -1,0 +1,39 @@
+[Unit]
+Description=Nexus Dispatch API Server
+Documentation=https://github.com/zcweah1981/Nexus-Dispatch
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=nexus
+Group=nexus
+WorkingDirectory=/opt/projects/nexus-dispatch
+EnvironmentFile=/opt/projects/nexus-dispatch/.env
+Environment=NODE_ENV=production
+Environment=PORT=8000
+ExecStartPre=/usr/bin/test -n "${DATABASE_URL}"
+ExecStartPre=/usr/bin/npx prisma migrate deploy
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+RestartSec=5
+StartLimitBurst=5
+StartLimitIntervalSec=120
+TimeoutStopSec=30
+
+# Resource limits
+LimitNOFILE=65536
+MemoryMax=512M
+
+# Security hardening. Keep app tree mostly read-only; data/logs are writable.
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/opt/projects/nexus-dispatch/data /opt/projects/nexus-dispatch/logs
+PrivateTmp=true
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nexus-api
+
+[Install]
+WantedBy=multi-user.target

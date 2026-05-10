@@ -51,6 +51,7 @@ describe('V8-R2 FSM state matrix', () => {
     expect(canTransitionV8('task', 'completion_pending', 'completed')).toBe(false);
     expect(canTransitionV8('task', 'review_pending', 'completed')).toBe(true);
     expect(canTransitionV8('task', 'review_pending', 'retry_ready')).toBe(true);
+    expect(canTransitionV8('task', 'review_pending', 'dead_letter')).toBe(true);
     expect(canTransitionV8('task', 'retry_ready', 'dispatched')).toBe(true);
     expect(canTransitionV8('task', 'running', 'blocked')).toBe(true);
     expect(canTransitionV8('task', 'blocked', 'retry_ready')).toBe(true);

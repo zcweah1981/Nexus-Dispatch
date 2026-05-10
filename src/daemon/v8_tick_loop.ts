@@ -66,6 +66,15 @@ type V8DaemonWorkerFetchResponse = {
 
 type V8DaemonWorkerFetch = (url: string, init: { method: string; headers: Record<string, string>; body: string }) => Promise<V8DaemonWorkerFetchResponse>;
 
+type V8ReviewerGateReason = 'self_review' | 'inactive_reviewer' | 'missing_reviewer_policy';
+type V8ReviewVerdict = 'pass' | 'fail' | null;
+
+interface V8ReviewerGateResult {
+  ok: boolean;
+  reason?: V8ReviewerGateReason;
+  reviewer_status?: string | null;
+}
+
 export interface V8DaemonTickLoopOptions {
   prisma: PrismaClient;
   project_id: string;
@@ -84,7 +93,7 @@ export interface V8DaemonTickResult {
   dispatched_task_ids: string[];
   ingested_task_ids: string[];
   review_task_ids: string[];
-  closeout: { archived_group_ids: string[]; group_summary_report_ids: string[] };
+  closeout: { archived_group_ids: string[]; group_summary_report_ids: string[]; details: string[] };
   recovered_stale_task_ids: string[];
 }
 
@@ -148,6 +157,16 @@ function parseJsonObject(value: string | null): Record<string, unknown> {
   }
 }
 
+function parseJsonStringArray(value: string | null): string[] {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return Array.isArray(parsed) ? parsed.filter((item): item is string => typeof item === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 function mergeJsonObject(value: string | null, patch: Record<string, unknown>): string {
   return json({ ...parseJsonObject(value), ...patch });
 }
@@ -175,7 +194,7 @@ export class V8DaemonTickLoop {
       dispatched_task_ids: [],
       ingested_task_ids: [],
       review_task_ids: [],
-      closeout: { archived_group_ids: [], group_summary_report_ids: [] },
+      closeout: { archived_group_ids: [], group_summary_report_ids: [], details: [] },
       recovered_stale_task_ids: [],
     };
 
@@ -520,16 +539,20 @@ export class V8DaemonTickLoop {
         });
       }
 
+      const isReviewVerdictTask = task.lane_required === 'REVIEW' && task.acceptance_mode === 'reviewer_verdict';
+      const existingWorkerProof = parseJsonObject(task.proof_data);
       await transitionTask({ prisma: this.options.prisma }, {
         project_id: this.options.project_id,
         task_id: workerResult.task_id,
         event: 'submit_completion',
         proof: {
+          ...existingWorkerProof,
           source: 'v8_daemon_tick_loop',
           step: 'ingest',
           run_id: run?.run_id,
           worker_run_id: workerResult.worker_run_id,
           worker_proof: workerResult.proof,
+          ...(isReviewVerdictTask ? { review_verdict: workerResult.proof, verdict: (workerResult.proof as Record<string, unknown>).verdict } : {}),
         },
       });
 
@@ -627,7 +650,265 @@ export class V8DaemonTickLoop {
     });
   }
 
+  private async validateReviewerGate(input: {
+    reviewer: string;
+    worker_agent_id?: string | null;
+    policy_id: string | null;
+    source: string;
+  }): Promise<V8ReviewerGateResult> {
+    if (input.worker_agent_id && input.reviewer === input.worker_agent_id) {
+      return { ok: false, reason: 'self_review' };
+    }
+    const reviewerAgent = await this.options.prisma.agent.findFirst({
+      where: {
+        project_id: this.options.project_id,
+        agent_id: input.reviewer,
+        lane: 'REVIEW',
+        status: 'online',
+      },
+      select: { status: true },
+    });
+    if (!reviewerAgent) {
+      const inactive = await this.options.prisma.agent.findFirst({
+        where: { project_id: this.options.project_id, agent_id: input.reviewer },
+        select: { status: true },
+      });
+      if (!inactive && !input.policy_id && input.source === 'fallback') {
+        return { ok: false, reason: 'missing_reviewer_policy', reviewer_status: null };
+      }
+      return { ok: false, reason: 'inactive_reviewer', reviewer_status: inactive?.status ?? null };
+    }
+    return { ok: true, reviewer_status: reviewerAgent.status };
+  }
+
+  private async recordReviewerGate(input: {
+    task: any;
+    reviewer: string;
+    worker_agent_id?: string | null;
+    policySnapshot: Record<string, unknown>;
+    sourceTaskSnapshot: Record<string, unknown>;
+    reason: V8ReviewerGateReason;
+    reviewer_status?: string | null;
+  }): Promise<void> {
+    const reworkJson = json({
+      source: 'v8_daemon_tick_loop',
+      gate: 'reviewer_policy_required',
+      reason: input.reason,
+      reviewer_agent_id: input.reviewer,
+      worker_agent_id: input.worker_agent_id ?? null,
+      reviewer_status: input.reviewer_status ?? null,
+      source_task: input.sourceTaskSnapshot,
+      ...input.policySnapshot,
+    });
+    const existing = await this.options.prisma.review.findFirst({
+      where: { project_id: this.options.project_id, original_task_id: input.task.id },
+    });
+    if (existing) {
+      await this.options.prisma.review.updateMany({
+        where: { project_id: this.options.project_id, id: existing.id },
+        data: {
+          reviewer_agent_id: input.reviewer,
+          status: 'blocked',
+          rework_json: reworkJson,
+        },
+      });
+      return;
+    }
+    await this.options.prisma.review.create({
+      data: {
+        project_id: this.options.project_id,
+        original_task_id: input.task.id,
+        reviewer_agent_id: input.reviewer,
+        status: 'blocked',
+        rework_json: reworkJson,
+      },
+    });
+  }
+
+  private parseReviewVerdictFromTask(task: any): V8ReviewVerdict {
+    const candidates: unknown[] = [task.proof_data, task.payload, task.objective, task.title];
+    for (const candidate of candidates) {
+      const verdict = this.parseReviewVerdict(candidate);
+      if (verdict) return verdict;
+    }
+    return null;
+  }
+
+  private parseReviewVerdict(value: unknown): V8ReviewVerdict {
+    if (!value) return null;
+    if (typeof value === 'object') return this.parseReviewVerdictObject(value as Record<string, unknown>);
+    if (typeof value !== 'string') return null;
+
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    try {
+      return this.parseReviewVerdictObject(JSON.parse(trimmed));
+    } catch {
+      const normalized = trimmed.toLowerCase();
+      if (/\b(fail|failed|reject|rejected|changes[ _-]requested)\b/.test(normalized) || /不通过|未通过|退回|返工/.test(trimmed)) return 'fail';
+      if (/\b(pass|passed|approve|approved)\b/.test(normalized) || /通过|审核通过/.test(trimmed)) return 'pass';
+      return null;
+    }
+  }
+
+  private parseReviewVerdictObject(value: Record<string, unknown>): V8ReviewVerdict {
+    const directKeys = ['verdict', 'result', 'status', 'review_verdict', 'conclusion'];
+    for (const key of directKeys) {
+      const verdict = this.parseReviewVerdict(value[key]);
+      if (verdict) return verdict;
+    }
+    const nestedKeys = ['proof', 'review', 'payload', 'reviewer_proof'];
+    for (const key of nestedKeys) {
+      const nested = value[key];
+      if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+        const verdict = this.parseReviewVerdictObject(nested as Record<string, unknown>);
+        if (verdict) return verdict;
+      }
+    }
+    return null;
+  }
+
+  private async closeFailedReview(review: any, reviewTask: any): Promise<{ detail: string; reviewTaskId: string }> {
+    const originalTask = await this.options.prisma.task.findFirst({
+      where: { project_id: this.options.project_id, id: review.original_task_id },
+      select: { retry_count: true, max_retries: true },
+    });
+    if (!originalTask) throw new Error(`review_original_task_not_found:${review.original_task_id}`);
+    const exhausted = originalTask.retry_count >= originalTask.max_retries;
+    const secondFail = !exhausted && originalTask.retry_count >= 1;
+    const outcome = exhausted ? 'dead_letter' : secondFail ? 'blocked' : 'retry_ready';
+    const nextRetryCount = exhausted ? originalTask.retry_count : originalTask.retry_count + 1;
+    const reworkPayload = {
+      ...parseJsonObject(review.rework_json),
+      verdict: 'fail',
+      closed_by: 'v8_daemon_tick_loop',
+      outcome,
+      gate: secondFail ? 'pm_gate' : undefined,
+      loop_breaker: secondFail || undefined,
+      retry_count: nextRetryCount,
+      max_retries: originalTask.max_retries,
+    };
+    const proof = {
+      source: 'v8_daemon_tick_loop',
+      step: 'review_fail_closeout',
+      review_id: review.id,
+      review_task_id: review.review_task_id,
+      reviewer_agent_id: review.reviewer_agent_id,
+      verdict: 'fail',
+      outcome,
+      retry_count: nextRetryCount,
+      max_retries: originalTask.max_retries,
+      rework: reworkPayload,
+    };
+
+    await transitionTask({ prisma: this.options.prisma }, {
+      project_id: this.options.project_id,
+      task_id: reviewTask.id,
+      event: 'request_review',
+      proof: { ...proof, target: 'review_task', reason: 'review_task_ready_for_fail_closeout' },
+    });
+    await transitionTask({ prisma: this.options.prisma }, {
+      project_id: this.options.project_id,
+      task_id: reviewTask.id,
+      event: 'review_pass',
+      proof: { ...proof, target: 'review_task' },
+    });
+    if (!exhausted) {
+      await this.options.prisma.task.updateMany({
+        where: { project_id: this.options.project_id, id: review.original_task_id, status: 'review_pending' },
+        data: { retry_count: nextRetryCount },
+      });
+    }
+    await transitionTask({ prisma: this.options.prisma }, {
+      project_id: this.options.project_id,
+      task_id: review.original_task_id,
+      event: exhausted ? 'dead_letter' : secondFail ? 'block' : 'retry',
+      proof: { ...proof, target: 'original_task', gate: secondFail ? 'pm_gate' : undefined },
+    });
+    await this.options.prisma.review.updateMany({
+      where: { project_id: this.options.project_id, id: review.id },
+      data: { status: 'changes_requested', rework_json: json(reworkPayload) },
+    });
+    return {
+      detail: exhausted
+        ? `review-fail-dead-letter:${review.original_task_id}:${reviewTask.id}`
+        : secondFail
+          ? `review-fail-loop-breaker:${review.original_task_id}:${reviewTask.id}`
+          : `review-fail-retry:${review.original_task_id}:${reviewTask.id}`,
+      reviewTaskId: reviewTask.id,
+    };
+  }
+
+  private async closePassedReviews(): Promise<{ count: number; details: string[]; reviewTaskIds: string[] }> {
+    const reviews = await this.options.prisma.review.findMany({
+      where: {
+        project_id: this.options.project_id,
+        status: { in: ['created', 'dispatched', 'running'] },
+        review_task_id: { not: null },
+      },
+      orderBy: [{ updated_at: 'asc' }, { id: 'asc' }],
+    });
+    const details: string[] = [];
+    const closedReviewTaskIds: string[] = [];
+
+    for (const review of reviews) {
+      const reviewTask = await this.options.prisma.task.findFirst({
+        where: { project_id: this.options.project_id, id: review.review_task_id ?? undefined },
+      });
+      if (!reviewTask || reviewTask.status !== 'completion_pending') {
+        continue;
+      }
+      const verdict = this.parseReviewVerdictFromTask(reviewTask);
+      if (!verdict) {
+        details.push(`review-waiting-verdict:${review.review_task_id}`);
+        continue;
+      }
+      if (verdict !== 'pass') {
+        const failed = await this.closeFailedReview(review, reviewTask);
+        closedReviewTaskIds.push(failed.reviewTaskId);
+        details.push(failed.detail);
+        continue;
+      }
+
+      const proof = {
+        source: 'v8_daemon_tick_loop',
+        step: 'review_pass_closeout',
+        review_id: review.id,
+        review_task_id: review.review_task_id,
+        reviewer_agent_id: review.reviewer_agent_id,
+        verdict: 'pass',
+      };
+      await transitionTask({ prisma: this.options.prisma }, {
+        project_id: this.options.project_id,
+        task_id: reviewTask.id,
+        event: 'request_review',
+        proof: { ...proof, target: 'review_task', reason: 'review_task_ready_for_pass' },
+      });
+      await transitionTask({ prisma: this.options.prisma }, {
+        project_id: this.options.project_id,
+        task_id: reviewTask.id,
+        event: 'review_pass',
+        proof: { ...proof, target: 'review_task' },
+      });
+      await transitionTask({ prisma: this.options.prisma }, {
+        project_id: this.options.project_id,
+        task_id: review.original_task_id,
+        event: 'review_pass',
+        proof: { ...proof, target: 'original_task' },
+      });
+      await this.options.prisma.review.updateMany({
+        where: { project_id: this.options.project_id, id: review.id },
+        data: { status: 'passed', rework_json: json({ ...parseJsonObject(review.rework_json), verdict: 'pass', closed_by: 'v8_daemon_tick_loop' }) },
+      });
+      closedReviewTaskIds.push(reviewTask.id);
+      details.push(`review-pass-closed:${review.original_task_id}:${reviewTask.id}`);
+    }
+
+    return { count: closedReviewTaskIds.length, details, reviewTaskIds: closedReviewTaskIds };
+  }
+
   private async spawnReviewTasks(): Promise<{ count: number; details: string[]; reviewTaskIds: string[] }> {
+    const closed = await this.closePassedReviews();
     const tasks = await this.options.prisma.task.findMany({
       where: { project_id: this.options.project_id, status: 'completion_pending' },
       orderBy: [{ updated_at: 'asc' }, { id: 'asc' }],
@@ -648,7 +929,11 @@ export class V8DaemonTickLoop {
       }
 
       const existing = await this.options.prisma.review.findFirst({
-        where: { project_id: this.options.project_id, original_task_id: task.id },
+        where: {
+          project_id: this.options.project_id,
+          original_task_id: task.id,
+          status: { in: ['created', 'dispatched', 'running', 'blocked'] },
+        },
       });
       if (existing?.review_task_id) {
         await transitionTask({ prisma: this.options.prisma }, {
@@ -680,15 +965,55 @@ export class V8DaemonTickLoop {
         priority: policy.priority,
         policy_json: policy.policy_json,
       };
+      const sourceAcceptanceCriteria = parseJsonStringArray(task.acceptance_criteria);
+      const sourceTaskSnapshot = {
+        task_id: task.id,
+        lane_required: task.lane_required,
+        acceptance_mode: mode,
+        requested_reviewer: task.reviewer,
+        acceptance_criteria: sourceAcceptanceCriteria,
+      };
+      const reviewerGate = await this.validateReviewerGate({
+        reviewer,
+        worker_agent_id: latestRun?.agent.agent_id,
+        policy_id: policy.policy_id,
+        source: policy.source,
+      });
+      if (!reviewerGate.ok) {
+        await this.recordReviewerGate({
+          task,
+          reviewer,
+          worker_agent_id: latestRun?.agent.agent_id,
+          policySnapshot: reviewPolicySnapshot,
+          sourceTaskSnapshot,
+          reason: reviewerGate.reason!,
+          reviewer_status: reviewerGate.reviewer_status,
+        });
+        details.push(`review-gated:${task.id}:${reviewerGate.reason}`);
+        continue;
+      }
       const reviewTask = await this.runtime.createTask(this.options.project_id, {
         title: `Review: ${task.title}`,
         objective: `Review task ${task.id} and return explicit PASS/FAIL proof.`,
         lane_required: 'REVIEW',
         status: 'created',
-        payload: { original_task_id: task.id, reviewer, source: 'v8_daemon_tick_loop', review_policy: reviewPolicySnapshot },
+        payload: {
+          original_task_id: task.id,
+          reviewer,
+          source: 'v8_daemon_tick_loop',
+          source_task: sourceTaskSnapshot,
+          review_policy: reviewPolicySnapshot,
+        },
         acceptance_mode: 'reviewer_verdict',
         reviewer,
-        acceptance_criteria: ['explicit PASS/FAIL verdict', 'structured reviewer proof'],
+        acceptance_criteria: [
+          `source lane: ${task.lane_required}`,
+          `source acceptance_mode: ${mode}`,
+          `requested reviewer: ${task.reviewer ?? 'none'}`,
+          ...sourceAcceptanceCriteria,
+          'explicit PASS/FAIL verdict',
+          'structured reviewer proof',
+        ],
       });
 
       const review = await this.options.prisma.review.create({
@@ -698,7 +1023,12 @@ export class V8DaemonTickLoop {
           review_task_id: reviewTask.id,
           reviewer_agent_id: reviewer,
           status: 'created',
-          rework_json: json({ source: 'v8_daemon_tick_loop', required_fields: ['verdict', 'reason', 'proof'], ...reviewPolicySnapshot }),
+          rework_json: json({
+            source: 'v8_daemon_tick_loop',
+            required_fields: ['verdict', 'reason', 'proof'],
+            source_task: sourceTaskSnapshot,
+            ...reviewPolicySnapshot,
+          }),
         },
       });
 
@@ -713,7 +1043,35 @@ export class V8DaemonTickLoop {
       details.push(`review-created:${task.id}:${reviewTask.id}`);
     }
 
-    return { count: reviewTaskIds.length, details, reviewTaskIds };
+    return {
+      count: closed.count + reviewTaskIds.length,
+      details: [...closed.details, ...details],
+      reviewTaskIds: [...closed.reviewTaskIds, ...reviewTaskIds],
+    };
+  }
+
+  private async advanceNextPhaseAfterCloseout(group: any): Promise<{
+    blueprint_id: string;
+    phase_id: string;
+    group_id: string;
+    task_group_id: string;
+    created_task_ids: string[];
+  } | null> {
+    const meta = parseJsonObject(group.ext_meta);
+    const blueprintId = typeof meta.blueprint_id === 'string' ? meta.blueprint_id : undefined;
+    const phaseId = typeof meta.phase_id === 'string' ? meta.phase_id : undefined;
+    if (!blueprintId || !phaseId) return null;
+    try {
+      const advanced = await this.runtime.advancePhase({
+        project_id: this.options.project_id,
+        blueprint_id: blueprintId,
+        from_phase_id: phaseId,
+      });
+      return advanced;
+    } catch (error: any) {
+      if (error?.code === 'NOT_FOUND') return null;
+      throw error;
+    }
   }
 
   private async closeoutCompletedGroups(): Promise<{ count: number; details: string[]; archived_group_ids: string[]; group_summary_report_ids: string[] }> {
@@ -780,6 +1138,27 @@ export class V8DaemonTickLoop {
         },
         delivery_json: { source: 'v8_daemon_tick_loop', channel: 'runtime-proof' },
       });
+
+      const nextPhase = await this.advanceNextPhaseAfterCloseout(group);
+      if (nextPhase) {
+        const payload = parseJsonObject(report.payload_json);
+        await this.options.prisma.report.updateMany({
+          where: { project_id: this.options.project_id, id: report.id },
+          data: {
+            payload_json: json({
+              ...payload,
+              next_phase: {
+                blueprint_id: nextPhase.blueprint_id,
+                phase_id: nextPhase.phase_id,
+                group_id: nextPhase.group_id,
+                task_group_id: nextPhase.task_group_id,
+                created_task_ids: nextPhase.created_task_ids,
+              },
+            }),
+          },
+        });
+        details.push(`next-phase-thawed:${nextPhase.group_id}`);
+      }
 
       archivedGroupIds.push(group.group_id);
       reportIds.push(report.id);

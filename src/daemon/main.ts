@@ -3,8 +3,8 @@
  * Task: nd-v75-t31 | Agent: long-coder-1
  *
  * 核心原则：
- *   1. tick() 全走 REST API，严禁 sqlite3.connect() 或直接 DAL 操作
- *   2. 步骤: GET /pending → find agent → claim → create run → adapt → POST worker → notify
+ *   1. tick() 全走 REST API，严禁直接 DAL 操作
+ *   2. 步骤: list pending → find agent → claim → create run → adapt → POST worker → notify
  *   3. 发包失败 rollback 状态到 created
  *   4. 超时任务回收（>15min dispatched → created）
  *   5. 派单通知用被派 Agent 自己的 bot token 发送（不用 Daemon bot）
@@ -29,6 +29,8 @@ export interface DaemonConfig {
   apiUrl: string;
   /** API auth token */
   authToken: string;
+  /** V8 project scope for runtime API calls */
+  projectId: string;
   /** Tick interval in ms (default 5000) */
   tickInterval: number;
   /** Timeout for dispatch to worker in ms (default 10000) */
@@ -69,6 +71,7 @@ class Daemon {
     this.config = {
       apiUrl: process.env.PM_API_URL || 'http://localhost:8000/api/v1',
       authToken: process.env.PM_API_TOKEN || 'valid-token',
+      projectId: process.env.NEXUS_PROJECT_ID || process.env.PROJECT_ID || 'nexus-dispatch',
       tickInterval: parseInt(process.env.TICK_INTERVAL || '5000', 10),
       dispatchTimeout: parseInt(process.env.DISPATCH_TIMEOUT || '10000', 10),
       recoveryTimeoutMinutes: parseInt(process.env.RECOVERY_TIMEOUT_MINUTES || '15', 10),
@@ -99,15 +102,15 @@ class Daemon {
    * 单次 tick 执行（全走 REST API）
    *
    * 流程：
-   *   1. 超时回收：POST /tasks/recover-timeouts
-   *   2. 获取待派发任务：GET /tasks/pending
+   *   1. 超时回收：POST runtime task timeout recovery
+   *   2. 获取待派发任务：GET runtime pending tasks
    *   3. 逐任务派发：
-   *      a. 查找匹配 Agent（GET /agents）
-   *      b. 原子 claim（POST /tasks/:id/claim）
-   *      c. 创建 Run 记录（POST /runs）
+   *      a. 查找匹配 Agent（GET runtime project agents）
+   *      b. 原子 claim（POST runtime task claim）
+   *      c. 创建 Run 记录（POST runtime runs）
    *      d. Adapter 适配 payload
    *      e. 发送到 Agent endpoint
-   *      f. 失败 rollback（PATCH /tasks/:id/status → created）
+   *      f. 失败 rollback（PATCH runtime task status → created）
    *      g. 成功则发送通知（用 Agent 自己的 bot）
    *   4. Freezer 闭环（仍用 PrismaDAL）
    *   5. 输出完整 tick 日志
@@ -124,7 +127,8 @@ class Daemon {
 
     // ── Step 1: 超时任务回收 ──────────────────────────────
     try {
-      const recoverRes = await this.apiClient.post('/tasks/recover-timeouts', {
+      const recoverRes = await this.apiClient.post('/runtime/tasks/recover-timeouts', {
+        project_id: this.config.projectId,
         timeout_minutes: this.config.recoveryTimeoutMinutes,
       });
       result.recovered = recoverRes.data.recovered || 0;
@@ -140,7 +144,7 @@ class Daemon {
     // ── Step 2: 获取待派发任务 ────────────────────────────
     let pendingTasks: any[] = [];
     try {
-      const pendingRes = await this.apiClient.get('/tasks/pending');
+      const pendingRes = await this.apiClient.get('/runtime/tasks/pending', { params: { project_id: this.config.projectId } });
       pendingTasks = pendingRes.data.tasks || [];
     } catch (error: any) {
       if (error.response?.status === 404) {
@@ -154,7 +158,7 @@ class Daemon {
     for (const task of pendingTasks) {
       try {
         // 3a. 查找匹配的 Agent
-        const agentsRes = await this.apiClient.get('/agents');
+        const agentsRes = await this.apiClient.get(`/runtime/projects/${encodeURIComponent(this.config.projectId)}/agents`);
         const agents: any[] = agentsRes.data.agents || [];
         const matchingAgent = agents.find(
           (a: any) => a.lane === task.lane_required && a.status === 'online',
@@ -170,7 +174,7 @@ class Daemon {
 
         // 3b. 原子 claim（created → dispatched）
         try {
-          await this.apiClient.post(`/tasks/${task.id}/claim`);
+          await this.apiClient.post(`/runtime/tasks/${task.id}/claim`, { project_id: this.config.projectId });
         } catch (claimError: any) {
           if (claimError.response?.status === 409) {
             // 已被其他 daemon tick claim
@@ -185,16 +189,17 @@ class Daemon {
         const idempotencyKey = `tick-${task.id}-${Date.now()}`;
         let runRecord: any;
         try {
-          const runRes = await this.apiClient.post('/runs', {
+          const runRes = await this.apiClient.post('/runtime/runs', {
+            project_id: this.config.projectId,
             task_id: task.id,
-            agent_id: matchingAgent.agent_id,
+            agent_id: matchingAgent.id || matchingAgent.agent_id,
             idempotency_key: idempotencyKey,
           });
           runRecord = runRes.data.run;
         } catch (runError: any) {
           // Run 创建失败 → rollback task status
           try {
-            await this.apiClient.patch(`/tasks/${task.id}/status`, { status: 'created' });
+            await this.apiClient.patch(`/runtime/tasks/${task.id}/status`, { project_id: this.config.projectId, status: 'created' });
           } catch {}
           result.failed++;
           result.details.push(
@@ -241,7 +246,7 @@ class Daemon {
 
           // Rollback: task status → created
           try {
-            await this.apiClient.patch(`/tasks/${task.id}/status`, { status: 'created' });
+            await this.apiClient.patch(`/runtime/tasks/${task.id}/status`, { project_id: this.config.projectId, status: 'created' });
             result.details.push(`[Dispatch] ↩️ Task ${task.id} rolled back to created`);
           } catch (rollbackError: any) {
             result.details.push(
@@ -252,7 +257,8 @@ class Daemon {
           // Mark run as failed
           if (runRecord?.run_id) {
             try {
-              await this.apiClient.patch(`/runs/${runRecord.run_id}/status`, {
+              await this.apiClient.patch(`/runtime/runs/${runRecord.run_id}/status`, {
+                project_id: this.config.projectId,
                 status: 'failed',
                 error_stack: `Dispatch to worker failed: ${dispatchError.message}`,
               });
@@ -372,7 +378,10 @@ class Daemon {
 
   private async ensureInit() {
     if (!this.prismaDal) {
-      const dbUrl = process.env.DATABASE_URL || 'file:../prisma/data/nexus.db';
+      const dbUrl = process.env.DATABASE_URL;
+      if (!dbUrl) {
+        throw new Error('DATABASE_URL is required for V8 daemon freezer tick');
+      }
       this.prismaDal = new PrismaDAL(dbUrl);
       await this.prismaDal.initPragmas();
       this.freezerEngine = new FreezerEngine(this.prismaDal);

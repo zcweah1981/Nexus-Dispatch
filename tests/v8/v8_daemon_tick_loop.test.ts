@@ -178,6 +178,329 @@ describe('V8-R4 daemon tick loop five-step rebuild', () => {
     expect(otherTask.status).toBe('created');
   });
 
+  test('R9-T2 drives worker proof through pm_audit review PASS to completed via daemon ticks', async () => {
+    const projectId = 'project-r9-worker-proof-review-pass';
+    const otherProjectId = 'project-r9-worker-proof-review-pass-other';
+    await seedProject(prisma, projectId);
+    await seedProject(prisma, otherProjectId);
+    const group = await prisma.taskGroup.create({
+      data: { project_id: projectId, group_id: 'r9-t2-group', name: 'R9-T2 group', status: 'active' },
+    });
+    await prisma.agent.createMany({
+      data: [
+        {
+          id: 'agent-r9-t2-long',
+          agent_id: 'long-coder-1',
+          project_id: projectId,
+          endpoint: 'mock://long-r9-t2',
+          lane: 'DEV',
+          dialect: 'hermes',
+          soul_prompt: '',
+          tools_allowed: '[]',
+          status: 'online',
+        },
+        {
+          id: 'agent-r9-t2-shun',
+          agent_id: 'shun-designer-1',
+          project_id: projectId,
+          endpoint: 'mock://shun-r9-t2',
+          lane: 'REVIEW',
+          dialect: 'hermes',
+          soul_prompt: '',
+          tools_allowed: '[]',
+          status: 'online',
+        },
+      ],
+    });
+    await prisma.task.createMany({
+      data: [
+        {
+          id: 'task-r9-t2-original',
+          project_id: projectId,
+          task_group_id: group.id,
+          title: 'R9-T2 worker proof review pass E2E',
+          objective: 'Worker proof must create review task; Shun PASS must complete original',
+          lane_required: 'DEV',
+          status: 'created',
+          acceptance_mode: 'pm_audit',
+          reviewer: 'shun-designer-1',
+          acceptance_criteria: JSON.stringify(['worker proof', 'review PASS', 'completed']),
+        },
+        {
+          id: 'task-r9-t2-other',
+          project_id: otherProjectId,
+          title: 'Other project sentinel',
+          objective: 'Must remain isolated',
+          lane_required: 'DEV',
+          status: 'created',
+          acceptance_mode: 'pm_audit',
+          reviewer: 'shun-designer-1',
+        },
+      ],
+    });
+
+    const queuedWorkerResults: any[] = [];
+    const dispatches: string[] = [];
+    const daemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      workerClient: {
+        dispatch: async (payload) => {
+          dispatches.push(`${payload.task.id}:${payload.agent.agent_id}`);
+          if (payload.task.lane_required === 'DEV') {
+            queuedWorkerResults.push({
+              project_id: projectId,
+              task_id: payload.task.id,
+              worker_run_id: 'worker-r9-t2-original-1',
+              lease_token: payload.lease.lease_token,
+              summary: 'worker proof ready for pm_audit',
+              proof: { command: 'npm test -- --runInBand tests/v8/v8_daemon_tick_loop.test.ts', result: 'passed', artifact: 'worker-proof' },
+            });
+          } else {
+            queuedWorkerResults.push({
+              project_id: projectId,
+              task_id: payload.task.id,
+              worker_run_id: 'worker-r9-t2-review-1',
+              lease_token: payload.lease.lease_token,
+              summary: 'review verdict PASS',
+              proof: { verdict: 'PASS', reviewer: 'shun-designer-1', reason: 'worker proof accepted' },
+            });
+          }
+          return { worker_run_id: queuedWorkerResults[queuedWorkerResults.length - 1].worker_run_id };
+        },
+        drainResults: async () => queuedWorkerResults.splice(0),
+      },
+    });
+
+    const firstTick = await daemon.tick();
+    expect(firstTick.dispatched_task_ids).toEqual(['task-r9-t2-original']);
+    expect(firstTick.ingested_task_ids).toEqual(['task-r9-t2-original']);
+    expect(firstTick.review_task_ids).toHaveLength(1);
+
+    const afterWorkerProof = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: 'task-r9-t2-original' } });
+    expect(afterWorkerProof.status).toBe('review_pending');
+    expect(JSON.parse(afterWorkerProof.proof_data || '{}')).toMatchObject({ event: 'request_review', project_id: projectId, task_id: 'task-r9-t2-original' });
+
+    const review = await prisma.review.findFirstOrThrow({ where: { project_id: projectId, original_task_id: 'task-r9-t2-original' } });
+    expect(review.status).toBe('created');
+    expect(review.reviewer_agent_id).toBe('shun-designer-1');
+    expect(review.review_task_id).toBeTruthy();
+    const reviewTaskId = review.review_task_id!;
+
+    const secondTick = await daemon.tick();
+    expect(secondTick.dispatched_task_ids).toEqual([reviewTaskId]);
+    expect(secondTick.ingested_task_ids).toEqual([reviewTaskId]);
+    expect(secondTick.review_task_ids).toEqual([reviewTaskId]);
+    expect(secondTick.steps.find((step) => step.name === 'review')?.details).toContain(`review-pass-closed:task-r9-t2-original:${reviewTaskId}`);
+
+    const original = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: 'task-r9-t2-original' } });
+    const completedReviewTask = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: reviewTaskId } });
+    expect(original.status).toBe('completed');
+    expect(completedReviewTask.status).toBe('completed');
+    expect(JSON.parse(original.proof_data || '{}')).toMatchObject({
+      event: 'review_pass',
+      from_status: 'review_pending',
+      to_status: 'completed',
+      proof: { source: 'v8_daemon_tick_loop', step: 'review_pass_closeout', target: 'original_task', verdict: 'pass' },
+    });
+
+    const passedReview = await prisma.review.findFirstOrThrow({ where: { project_id: projectId, original_task_id: 'task-r9-t2-original' } });
+    expect(passedReview.status).toBe('passed');
+    expect(JSON.parse(passedReview.rework_json || '{}')).toMatchObject({ verdict: 'pass', closed_by: 'v8_daemon_tick_loop' });
+
+    const workerIngestArtifacts = await prisma.artifact.findMany({
+      where: { project_id: projectId, artifact_type: 'worker_result_ingest' },
+      orderBy: { task_id: 'asc' },
+    });
+    expect(workerIngestArtifacts.map((artifact) => artifact.task_id).sort()).toEqual(['task-r9-t2-original', reviewTaskId].sort());
+    expect(workerIngestArtifacts.map((artifact) => JSON.parse(artifact.payload_data || '{}').worker_run_id).sort()).toEqual(['worker-r9-t2-original-1', 'worker-r9-t2-review-1']);
+
+    const otherTask = await prisma.task.findFirstOrThrow({ where: { project_id: otherProjectId, id: 'task-r9-t2-other' } });
+    expect(otherTask.status).toBe('created');
+    expect(dispatches).toEqual(['task-r9-t2-original:long-coder-1', `${reviewTaskId}:shun-designer-1`]);
+  });
+
+  test('R9-T3 drives review FAIL to retry_ready, redispatch, then reviewer PASS completes original', async () => {
+    const projectId = 'project-r9-review-fail-retry-pass';
+    const otherProjectId = 'project-r9-review-fail-retry-pass-other';
+    await seedProject(prisma, projectId);
+    await seedProject(prisma, otherProjectId);
+    const group = await prisma.taskGroup.create({
+      data: { project_id: projectId, group_id: 'r9-t3-group', name: 'R9-T3 group', status: 'active' },
+    });
+    await prisma.agent.createMany({
+      data: [
+        {
+          id: 'agent-r9-t3-long',
+          agent_id: 'long-coder-1',
+          project_id: projectId,
+          endpoint: 'mock://long-r9-t3',
+          lane: 'DEV',
+          dialect: 'hermes',
+          soul_prompt: '',
+          tools_allowed: '[]',
+          status: 'online',
+        },
+        {
+          id: 'agent-r9-t3-shun',
+          agent_id: 'shun-designer-1',
+          project_id: projectId,
+          endpoint: 'mock://shun-r9-t3',
+          lane: 'REVIEW',
+          dialect: 'hermes',
+          soul_prompt: '',
+          tools_allowed: '[]',
+          status: 'online',
+        },
+      ],
+    });
+    await prisma.task.createMany({
+      data: [
+        {
+          id: 'task-r9-t3-original',
+          project_id: projectId,
+          task_group_id: group.id,
+          title: 'R9-T3 review fail retry pass E2E',
+          objective: 'First Shun review fails; Long retries; second Shun review passes',
+          lane_required: 'DEV',
+          status: 'created',
+          acceptance_mode: 'pm_audit',
+          reviewer: 'shun-designer-1',
+          acceptance_criteria: JSON.stringify(['review FAIL', 'retry_ready', 'redispatch', 'review PASS', 'completed']),
+          max_retries: 2,
+        },
+        {
+          id: 'task-r9-t3-other',
+          project_id: otherProjectId,
+          title: 'Other project sentinel',
+          objective: 'Must remain isolated',
+          lane_required: 'DEV',
+          status: 'created',
+          acceptance_mode: 'pm_audit',
+          reviewer: 'shun-designer-1',
+        },
+      ],
+    });
+
+    const queuedWorkerResults: any[] = [];
+    const dispatches: string[] = [];
+    let devDispatchCount = 0;
+    let reviewDispatchCount = 0;
+    const daemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      workerClient: {
+        dispatch: async (payload) => {
+          dispatches.push(`${payload.task.id}:${payload.agent.agent_id}`);
+          if (payload.task.lane_required === 'DEV') {
+            devDispatchCount += 1;
+            queuedWorkerResults.push({
+              project_id: projectId,
+              task_id: payload.task.id,
+              worker_run_id: `worker-r9-t3-original-${devDispatchCount}`,
+              lease_token: payload.lease.lease_token,
+              summary: devDispatchCount === 1 ? 'initial worker proof ready for review' : 'retry worker proof ready for review',
+              proof: {
+                command: 'npm test -- --runInBand tests/v8/v8_daemon_tick_loop.test.ts',
+                result: 'passed',
+                attempt: devDispatchCount,
+              },
+            });
+          } else {
+            reviewDispatchCount += 1;
+            queuedWorkerResults.push({
+              project_id: projectId,
+              task_id: payload.task.id,
+              worker_run_id: `worker-r9-t3-review-${reviewDispatchCount}`,
+              lease_token: payload.lease.lease_token,
+              summary: reviewDispatchCount === 1 ? 'review verdict CHANGES_REQUESTED' : 'review verdict PASS',
+              proof: reviewDispatchCount === 1
+                ? { verdict: 'CHANGES_REQUESTED', reviewer: 'shun-designer-1', reason: 'needs one retry' }
+                : { verdict: 'PASS', reviewer: 'shun-designer-1', reason: 'retry accepted' },
+            });
+          }
+          return { worker_run_id: queuedWorkerResults[queuedWorkerResults.length - 1].worker_run_id };
+        },
+        drainResults: async () => queuedWorkerResults.splice(0),
+      },
+    });
+
+    const firstTick = await daemon.tick();
+    expect(firstTick.dispatched_task_ids).toEqual(['task-r9-t3-original']);
+    expect(firstTick.ingested_task_ids).toEqual(['task-r9-t3-original']);
+    expect(firstTick.review_task_ids).toHaveLength(1);
+    const firstReview = await prisma.review.findFirstOrThrow({ where: { project_id: projectId, original_task_id: 'task-r9-t3-original' } });
+    const firstReviewTaskId = firstReview.review_task_id!;
+
+    const secondTick = await daemon.tick();
+    expect(secondTick.dispatched_task_ids).toEqual([firstReviewTaskId]);
+    expect(secondTick.ingested_task_ids).toEqual([firstReviewTaskId]);
+    expect(secondTick.steps.find((step) => step.name === 'review')?.details).toContain(`review-fail-retry:task-r9-t3-original:${firstReviewTaskId}`);
+    const afterFailOriginal = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: 'task-r9-t3-original' } });
+    const afterFailReviewTask = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: firstReviewTaskId } });
+    const failedReview = await prisma.review.findFirstOrThrow({ where: { project_id: projectId, id: firstReview.id } });
+    expect(afterFailOriginal.status).toBe('retry_ready');
+    expect(afterFailOriginal.retry_count).toBe(1);
+    expect(afterFailReviewTask.status).toBe('completed');
+    expect(failedReview.status).toBe('changes_requested');
+    expect(JSON.parse(failedReview.rework_json || '{}')).toMatchObject({ verdict: 'fail', outcome: 'retry_ready', retry_count: 1 });
+
+    const thirdTick = await daemon.tick();
+    expect(thirdTick.dispatched_task_ids).toEqual(['task-r9-t3-original']);
+    expect(thirdTick.ingested_task_ids).toEqual(['task-r9-t3-original']);
+    expect(thirdTick.review_task_ids).toHaveLength(1);
+    const allReviewsAfterRetry = await prisma.review.findMany({
+      where: { project_id: projectId, original_task_id: 'task-r9-t3-original' },
+      orderBy: { created_at: 'asc' },
+    });
+    expect(allReviewsAfterRetry).toHaveLength(2);
+    const retryReview = allReviewsAfterRetry[1];
+    expect(retryReview.status).toBe('created');
+    expect(retryReview.review_task_id).toBeTruthy();
+    expect(retryReview.review_task_id).not.toBe(firstReviewTaskId);
+    const afterRetryOriginal = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: 'task-r9-t3-original' } });
+    expect(afterRetryOriginal.status).toBe('review_pending');
+    expect(afterRetryOriginal.retry_count).toBe(1);
+
+    const fourthTick = await daemon.tick();
+    expect(fourthTick.dispatched_task_ids).toEqual([retryReview.review_task_id]);
+    expect(fourthTick.ingested_task_ids).toEqual([retryReview.review_task_id]);
+    expect(fourthTick.steps.find((step) => step.name === 'review')?.details).toContain(`review-pass-closed:task-r9-t3-original:${retryReview.review_task_id}`);
+
+    const completedOriginal = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: 'task-r9-t3-original' } });
+    const completedRetryReviewTask = await prisma.task.findFirstOrThrow({ where: { project_id: projectId, id: retryReview.review_task_id! } });
+    const passedReview = await prisma.review.findFirstOrThrow({ where: { project_id: projectId, id: retryReview.id } });
+    expect(completedOriginal.status).toBe('completed');
+    expect(completedRetryReviewTask.status).toBe('completed');
+    expect(passedReview.status).toBe('passed');
+    expect(JSON.parse(completedOriginal.proof_data || '{}')).toMatchObject({
+      event: 'review_pass',
+      from_status: 'review_pending',
+      to_status: 'completed',
+      proof: { source: 'v8_daemon_tick_loop', step: 'review_pass_closeout', target: 'original_task', verdict: 'pass' },
+    });
+
+    const workerIngestArtifacts = await prisma.artifact.findMany({
+      where: { project_id: projectId, artifact_type: 'worker_result_ingest' },
+      orderBy: { created_at: 'asc' },
+    });
+    expect(workerIngestArtifacts.map((artifact) => JSON.parse(artifact.payload_data || '{}').worker_run_id)).toEqual([
+      'worker-r9-t3-original-1',
+      'worker-r9-t3-review-1',
+      'worker-r9-t3-original-2',
+      'worker-r9-t3-review-2',
+    ]);
+
+    const otherTask = await prisma.task.findFirstOrThrow({ where: { project_id: otherProjectId, id: 'task-r9-t3-other' } });
+    expect(otherTask.status).toBe('created');
+    expect(dispatches).toEqual([
+      'task-r9-t3-original:long-coder-1',
+      `${firstReviewTaskId}:shun-designer-1`,
+      'task-r9-t3-original:long-coder-1',
+      `${retryReview.review_task_id}:shun-designer-1`,
+    ]);
+  });
+
   test('default OpenAI-compatible worker client posts dispatch to registered endpoint and records proof', async () => {
     const projectId = 'project-r4-openai-dispatch';
     await seedProject(prisma, projectId);
@@ -307,6 +630,153 @@ describe('V8-R4 daemon tick loop five-step rebuild', () => {
 
     const untouched = await prisma.taskGroup.findFirstOrThrow({ where: { id: otherGroup.id, project_id: otherProjectId } });
     expect(untouched.status).toBe('active');
+  });
+
+  test('R9-T4 closes a completed group, writes summary proof, and thaws the next blueprint phase', async () => {
+    const projectId = 'project-r9-t4-closeout-thaw';
+    const otherProjectId = 'project-r9-t4-closeout-thaw-other';
+    const blueprintId = 'bp-r9-t4-closeout-thaw';
+    await seedProject(prisma, projectId);
+    await seedProject(prisma, otherProjectId);
+
+    const frozenBlueprint = {
+      version: '8.0',
+      blueprint_id: blueprintId,
+      name: 'R9-T4 closeout thaw blueprint',
+      phases: [
+        {
+          phase_id: 'phase-r9-t4-a',
+          name: 'Phase A',
+          group_id: 'r9-t4-group-a',
+          priority: 1,
+          tasks: [
+            {
+              task_id: 'r9-t4-a-1',
+              title: 'Already completed phase A task',
+              objective: 'Seeded runtime task for closeout',
+              lane_required: 'DEV',
+              acceptance_mode: 'manual',
+              acceptance_criteria: ['seeded completed task'],
+            },
+          ],
+        },
+        {
+          phase_id: 'phase-r9-t4-b',
+          name: 'Phase B',
+          group_id: 'r9-t4-group-b',
+          priority: 2,
+          tasks: [
+            {
+              task_id: 'r9-t4-b-1',
+              title: 'Next phase task 1',
+              objective: 'Should be thawed only after summary proof exists',
+              lane_required: 'DEV',
+              acceptance_mode: 'manual',
+              acceptance_criteria: ['created by next phase thaw'],
+            },
+            {
+              task_id: 'r9-t4-b-2',
+              title: 'Next phase task 2',
+              objective: 'Depends on next phase task 1 inside the same project',
+              lane_required: 'DEV',
+              acceptance_mode: 'manual',
+              acceptance_criteria: ['created with same-project dependency'],
+              depends_on: ['r9-t4-b-1'],
+            },
+          ],
+        },
+      ],
+    };
+
+    await prisma.projectBlueprint.create({
+      data: {
+        project_id: projectId,
+        blueprint_id: blueprintId,
+        name: frozenBlueprint.name,
+        version: frozenBlueprint.version,
+        schema_json: JSON.stringify(frozenBlueprint),
+        status: 'frozen',
+      },
+    });
+
+    const groupA = await prisma.taskGroup.create({
+      data: {
+        project_id: projectId,
+        group_id: 'r9-t4-group-a',
+        name: 'Phase A',
+        status: 'active',
+        priority: 1,
+        ext_meta: JSON.stringify({ blueprint_id: blueprintId, phase_id: 'phase-r9-t4-a' }),
+      },
+    });
+    await prisma.task.create({
+      data: {
+        id: 'r9-t4-a-1',
+        project_id: projectId,
+        task_group_id: groupA.id,
+        title: 'Already completed phase A task',
+        objective: 'Seeded runtime task for closeout',
+        lane_required: 'DEV',
+        status: 'completed',
+        acceptance_mode: 'manual',
+      },
+    });
+
+    const otherGroup = await prisma.taskGroup.create({
+      data: { project_id: otherProjectId, group_id: 'r9-t4-group-a', name: 'Other Phase A', status: 'active' },
+    });
+    await prisma.task.create({
+      data: {
+        id: 'r9-t4-other-a-1',
+        project_id: otherProjectId,
+        task_group_id: otherGroup.id,
+        title: 'Other project task',
+        objective: 'Must not be archived or thawed by this project tick',
+        lane_required: 'DEV',
+        status: 'created',
+      },
+    });
+
+    const daemon = new V8DaemonTickLoop({ prisma, project_id: projectId });
+    const result = await daemon.tick();
+
+    expect(result.closeout.archived_group_ids).toEqual(['r9-t4-group-a']);
+    expect(result.closeout.group_summary_report_ids).toHaveLength(1);
+    expect(result.closeout.details).toEqual(expect.arrayContaining(['group-archived:r9-t4-group-a', 'next-phase-thawed:r9-t4-group-b']));
+
+    const archivedGroup = await prisma.taskGroup.findFirstOrThrow({ where: { project_id: projectId, group_id: 'r9-t4-group-a' } });
+    expect(archivedGroup.status).toBe('archived');
+
+    const summary = await prisma.report.findFirstOrThrow({
+      where: { project_id: projectId, message_type: 'group_summary', status: 'sent' },
+    });
+    expect(JSON.parse(summary.payload_json)).toMatchObject({
+      project_id: projectId,
+      group_id: 'r9-t4-group-a',
+      task_group_id: groupA.id,
+      completed: 1,
+      next_phase: { blueprint_id: blueprintId, phase_id: 'phase-r9-t4-b', group_id: 'r9-t4-group-b' },
+    });
+
+    const groupB = await prisma.taskGroup.findFirstOrThrow({ where: { project_id: projectId, group_id: 'r9-t4-group-b' } });
+    expect(groupB.status).toBe('active');
+    const phaseBTasks = await prisma.task.findMany({
+      where: { project_id: projectId, task_group_id: groupB.id },
+      orderBy: { id: 'asc' },
+    });
+    expect(phaseBTasks.map((task) => [task.id, task.status])).toEqual([
+      ['r9-t4-b-1', 'created'],
+      ['r9-t4-b-2', 'created'],
+    ]);
+    const dependency = await prisma.taskDependency.findFirstOrThrow({
+      where: { project_id: projectId, task_id: 'r9-t4-b-2', depends_on_id: 'r9-t4-b-1' },
+    });
+    expect(dependency.dependency_type).toBe('blocks');
+
+    const otherProjectGroup = await prisma.taskGroup.findFirstOrThrow({ where: { id: otherGroup.id, project_id: otherProjectId } });
+    expect(otherProjectGroup.status).toBe('active');
+    const otherProjectPhaseB = await prisma.taskGroup.findFirst({ where: { project_id: otherProjectId, group_id: 'r9-t4-group-b' } });
+    expect(otherProjectPhaseB).toBeNull();
   });
 
   test('stale takeover fails old run, reclaims task through FSM, and dispatch uses a fresh lease', async () => {
@@ -836,7 +1306,478 @@ describe('V8-R4 daemon tick loop five-step rebuild', () => {
     expect(await prisma.review.count({ where: { project_id: projectId, original_task_id: 'task-r5-standard-boundary' } })).toBe(0);
   });
 
-  test('daemon source is V8-only: no legacy DAL/ignored DB/raw SQL and completed writes use transitionTask boundary', () => {
+  test('R9-T5 daemon smoke keeps project_cronjobs registry isolated and never starts or mutates cronjobs', async () => {
+    const projectId = 'project-r9-cron-registry-smoke';
+    const otherProjectId = 'project-r9-cron-registry-smoke-other';
+    await seedProject(prisma, projectId);
+    await seedProject(prisma, otherProjectId);
+    await prisma.projectCronjob.createMany({
+      data: [
+        {
+          project_id: projectId,
+          cronjob_id: 'patrol-active',
+          name: 'Active patrol for current project',
+          schedule: '*/5 * * * *',
+          status: 'active',
+          enabled_policy: 'always_on',
+          owner_agent_id: 'long-coder-1',
+          config_json: JSON.stringify({ prompt_template: '巡检 {{project_id}}' }),
+        },
+        {
+          project_id: otherProjectId,
+          cronjob_id: 'patrol-active',
+          name: 'Active patrol for another project',
+          schedule: '* * * * *',
+          status: 'active',
+          enabled_policy: 'always_on',
+          owner_agent_id: 'other-agent',
+          config_json: JSON.stringify({ prompt_template: '其他项目 {{project_id}}' }),
+        },
+      ],
+    });
+
+    const dispatch = jest.fn();
+    const daemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      workerClient: { dispatch, drainResults: async () => [] },
+    });
+
+    const result = await daemon.tick();
+
+    expect(result.project_id).toBe(projectId);
+    expect(result.claimed_task_ids).toEqual([]);
+    expect(result.dispatched_task_ids).toEqual([]);
+    expect(result.ingested_task_ids).toEqual([]);
+    expect(result.review_task_ids).toEqual([]);
+    expect(result.closeout).toEqual({ archived_group_ids: [], group_summary_report_ids: [], details: [], count: 0 });
+    expect(dispatch).not.toHaveBeenCalled();
+
+    const currentCronjob = await prisma.projectCronjob.findFirstOrThrow({
+      where: { project_id: projectId, cronjob_id: 'patrol-active' },
+    });
+    const otherCronjob = await prisma.projectCronjob.findFirstOrThrow({
+      where: { project_id: otherProjectId, cronjob_id: 'patrol-active' },
+    });
+    expect(currentCronjob).toMatchObject({
+      project_id: projectId,
+      cronjob_id: 'patrol-active',
+      status: 'active',
+      owner_agent_id: 'long-coder-1',
+    });
+    expect(currentCronjob.last_run_at).toBeNull();
+    expect(JSON.parse(currentCronjob.config_json || '{}')).toEqual({ prompt_template: '巡检 {{project_id}}' });
+    expect(otherCronjob).toMatchObject({
+      project_id: otherProjectId,
+      cronjob_id: 'patrol-active',
+      status: 'active',
+      owner_agent_id: 'other-agent',
+    });
+    expect(otherCronjob.last_run_at).toBeNull();
+    expect(await prisma.report.count({ where: { message_type: { contains: 'cron' } } })).toBe(0);
+    expect(await prisma.artifact.count({ where: { artifact_type: { contains: 'cron' } } })).toBe(0);
+  });
+
+  test('R9-T6 daemon restart recovery smoke: interrupted mid-flight tasks recover and complete after daemon restart', async () => {
+    const projectId = 'project-r9-t6-restart-recovery';
+    const otherProjectId = 'project-r9-t6-restart-recovery-other';
+    await seedProject(prisma, projectId);
+    await seedProject(prisma, otherProjectId);
+    const group = await prisma.taskGroup.create({
+      data: { project_id: projectId, group_id: 'r9-t6-group', name: 'R9-T6 restart recovery group', status: 'active' },
+    });
+    await prisma.agent.createMany({
+      data: [
+        {
+          id: 'agent-r9-t6-long',
+          agent_id: 'long-coder-1',
+          project_id: projectId,
+          endpoint: 'mock://long-r9-t6',
+          lane: 'DEV',
+          dialect: 'hermes',
+          soul_prompt: '',
+          tools_allowed: '[]',
+          status: 'online',
+        },
+        {
+          id: 'agent-r9-t6-shun',
+          agent_id: 'shun-designer-1',
+          project_id: projectId,
+          endpoint: 'mock://shun-r9-t6',
+          lane: 'REVIEW',
+          dialect: 'hermes',
+          soul_prompt: '',
+          tools_allowed: '[]',
+          status: 'online',
+        },
+      ],
+    });
+    await prisma.task.createMany({
+      data: [
+        {
+          id: 'task-r9-t6-recoverable',
+          project_id: projectId,
+          task_group_id: group.id,
+          title: 'R9-T6 recoverable task',
+          objective: 'Dispatched by daemon tick 1, running when daemon crashes; must be recovered by restarted daemon',
+          lane_required: 'DEV',
+          status: 'created',
+          acceptance_mode: 'pm_audit',
+          reviewer: 'shun-designer-1',
+          acceptance_criteria: JSON.stringify(['restart recovery', 'retry_ready', 'redispatch', 'completion']),
+          max_retries: 2,
+        },
+        {
+          id: 'task-r9-t6-fresh-after-restart',
+          project_id: projectId,
+          task_group_id: group.id,
+          title: 'R9-T6 fresh task after restart',
+          objective: 'Created before crash but not yet claimed; should be claimed normally by restarted daemon',
+          lane_required: 'DEV',
+          status: 'created',
+          acceptance_mode: 'standard',
+        },
+        {
+          id: 'task-r9-t6-other-sentinel',
+          project_id: otherProjectId,
+          title: 'Other project sentinel',
+          objective: 'Must remain isolated across daemon restart',
+          lane_required: 'DEV',
+          status: 'created',
+          acceptance_mode: 'pm_audit',
+          reviewer: 'shun-designer-1',
+        },
+      ],
+    });
+
+    // ══════════════════════════════════════════════════════════
+    // TICK 1: Initial daemon — dispatch recoverable task
+    // ══════════════════════════════════════════════════════════
+    let tick1DispatchCount = 0;
+    const tick1WorkerResults: any[] = [];
+    const tick1Daemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      workerClient: {
+        dispatch: async (payload) => {
+          tick1DispatchCount += 1;
+          // Only dispatch the first DEV task; simulate crash before result comes back
+          if (payload.task.id === 'task-r9-t6-recoverable') {
+            // Worker was dispatched but daemon crashes before ingest
+            tick1WorkerResults.push({
+              project_id: projectId,
+              task_id: payload.task.id,
+              worker_run_id: 'worker-r9-t6-recoverable-tick1',
+              lease_token: payload.lease.lease_token,
+              summary: 'worker completed but daemon crashed before ingest',
+              proof: { attempt: 1, status: 'lost_due_to_crash' },
+            });
+            // Return worker_run_id but DON'T drain — simulate crash before result ingestion
+            return { worker_run_id: 'worker-r9-t6-recoverable-tick1' };
+          }
+          // The fresh-after-restart task should NOT be dispatched in tick 1
+          // because the daemon crashes after dispatching the first task
+          throw new Error('simulated_daemon_crash_after_first_dispatch');
+        },
+        drainResults: async () => {
+          // Daemon crashes — worker results are LOST (never ingested)
+          return [];
+        },
+      },
+    });
+
+    // Tick 1 — dispatch the recoverable task successfully
+    const tick1 = await tick1Daemon.tick();
+    expect(tick1.dispatched_task_ids).toEqual(['task-r9-t6-recoverable']);
+    // The dispatch step itself is ok even though the second task hit an error
+    // (per-task errors are caught within the dispatch loop)
+    // The fresh-after-restart task gets an error dispatch but is handled gracefully
+    expect(tick1.steps.find((s) => s.name === 'dispatch')?.ok).toBe(true);
+
+    // After tick 1, verify state:
+    // - recoverable task should be running (dispatched, run created)
+    const taskAfterTick1 = await prisma.task.findFirstOrThrow({
+      where: { project_id: projectId, id: 'task-r9-t6-recoverable' },
+    });
+    expect(taskAfterTick1.status).toBe('running');
+
+    // The worker result was never ingested — simulate the passage of time
+    // by creating a stale run (started_at far in the past)
+    const staleRun = await prisma.run.findFirstOrThrow({
+      where: { project_id: projectId, task_id: 'task-r9-t6-recoverable', status: 'running' },
+    });
+    await prisma.run.updateMany({
+      where: { project_id: projectId, run_id: staleRun.run_id },
+      data: { started_at: new Date(Date.now() - 60 * 60 * 1000) }, // 1 hour ago
+    });
+
+    // ══════════════════════════════════════════════════════════
+    // DAEMON RESTART (simulated by new V8DaemonTickLoop instance)
+    // ══════════════════════════════════════════════════════════
+
+    // Check what happened to the fresh-after-restart task
+    const freshTaskAfterTick1 = await prisma.task.findFirstOrThrow({
+      where: { project_id: projectId, id: 'task-r9-t6-fresh-after-restart' },
+    });
+    // It might have been claimed (dispatched status) or stayed created,
+    // depending on whether the dispatch crash happened before or after it was processed.
+    // For this smoke, we just need to verify the restarted daemon handles it.
+
+    // Reset the fresh-after-restart task to created if it was left in a bad state
+    if (freshTaskAfterTick1.status === 'dispatched' || freshTaskAfterTick1.status === 'running') {
+      await prisma.task.updateMany({
+        where: { project_id: projectId, id: 'task-r9-t6-fresh-after-restart' },
+        data: { status: 'created' },
+      });
+    }
+
+    // Also reset the crashed dispatch attempt for fresh-after-restart if a run exists
+    const crashedRun = await prisma.run.findFirst({
+      where: { project_id: projectId, task_id: 'task-r9-t6-fresh-after-restart' },
+    });
+    if (crashedRun) {
+      await prisma.run.updateMany({
+        where: { project_id: projectId, run_id: crashedRun.run_id },
+        data: { status: 'error', error_stack: 'daemon_crash_recovery:run_interrupted_by_restart', ended_at: new Date() },
+      });
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // TICK 2: Restarted daemon — recovery + fresh processing
+    // ══════════════════════════════════════════════════════════
+    const tick2QueuedResults: any[] = [];
+    const tick2Dispatches: string[] = [];
+    let tick2DevDispatchCount = 0;
+    let tick2ReviewDispatchCount = 0;
+    const restartedDaemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      staleRunMs: 30 * 60 * 1000, // 30 minutes — the stale run from tick 1 should be detected
+      workerClient: {
+        dispatch: async (payload) => {
+          tick2Dispatches.push(`${payload.task.id}:${payload.agent.agent_id}`);
+          if (payload.task.lane_required === 'DEV') {
+            tick2DevDispatchCount += 1;
+            tick2QueuedResults.push({
+              project_id: projectId,
+              task_id: payload.task.id,
+              worker_run_id: `worker-r9-t6-${payload.task.id}-${tick2DevDispatchCount}`,
+              lease_token: payload.lease.lease_token,
+              summary: `restarted daemon dispatch attempt ${tick2DevDispatchCount}`,
+              proof: { attempt: tick2DevDispatchCount, restarted: true },
+            });
+          } else {
+            tick2ReviewDispatchCount += 1;
+            tick2QueuedResults.push({
+              project_id: projectId,
+              task_id: payload.task.id,
+              worker_run_id: `worker-r9-t6-review-${tick2ReviewDispatchCount}`,
+              lease_token: payload.lease.lease_token,
+              summary: 'review verdict PASS after restart recovery',
+              proof: { verdict: 'PASS', reviewer: 'shun-designer-1', reason: 'restart recovery proof accepted' },
+            });
+          }
+          return { worker_run_id: tick2QueuedResults[tick2QueuedResults.length - 1].worker_run_id };
+        },
+        drainResults: async () => tick2QueuedResults.splice(0),
+      },
+    });
+
+    const tick2 = await restartedDaemon.tick();
+
+    // Verify stale run recovery
+    expect(tick2.recovered_stale_task_ids).toEqual(['task-r9-t6-recoverable']);
+
+    // After recovery, the recoverable task should be in retry_ready (NOT immediately re-dispatched in same tick)
+    const taskAfterRecovery = await prisma.task.findFirstOrThrow({
+      where: { project_id: projectId, id: 'task-r9-t6-recoverable' },
+    });
+    expect(taskAfterRecovery.status).toBe('retry_ready');
+    expect(taskAfterRecovery.retry_count).toBe(1);
+    expect(JSON.parse(taskAfterRecovery.ext_meta || '{}')).toMatchObject({
+      timeout_recovery: {
+        previous_run_id: staleRun.run_id,
+        outcome: 'retry_ready',
+        retry_count: 1,
+      },
+    });
+
+    // Verify the stale run was marked as error
+    const oldRun = await prisma.run.findFirstOrThrow({
+      where: { project_id: projectId, run_id: staleRun.run_id },
+    });
+    expect(oldRun.status).toBe('error');
+    expect(oldRun.error_stack).toContain('timeout_recovery');
+
+    // Fresh-after-restart task should be claimed in tick 2
+    expect(tick2.claimed_task_ids).toContain('task-r9-t6-fresh-after-restart');
+    expect(tick2.dispatched_task_ids).toContain('task-r9-t6-fresh-after-restart');
+
+    // Recoverable task should NOT be dispatched in tick 2 (stays in retry_ready)
+    expect(tick2.dispatched_task_ids).not.toContain('task-r9-t6-recoverable');
+
+    // Verify the fresh task went through the full standard pipeline
+    const freshTaskAfterTick2 = await prisma.task.findFirstOrThrow({
+      where: { project_id: projectId, id: 'task-r9-t6-fresh-after-restart' },
+    });
+    expect(freshTaskAfterTick2.status).toBe('completed');
+
+    // ══════════════════════════════════════════════════════════
+    // TICK 3: Continue — redispatch the recovered task
+    // ══════════════════════════════════════════════════════════
+    const tick3QueuedResults: any[] = [];
+    const tick3Dispatches: string[] = [];
+    const tick3Daemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      workerClient: {
+        dispatch: async (payload) => {
+          tick3Dispatches.push(`${payload.task.id}:${payload.agent.agent_id}`);
+          if (payload.task.lane_required === 'DEV') {
+            tick3QueuedResults.push({
+              project_id: projectId,
+              task_id: payload.task.id,
+              worker_run_id: 'worker-r9-t6-recoverable-retry',
+              lease_token: payload.lease.lease_token,
+              summary: 'retry worker proof after daemon restart',
+              proof: { attempt: 2, restarted: true, recovered: true },
+            });
+          } else {
+            tick3QueuedResults.push({
+              project_id: projectId,
+              task_id: payload.task.id,
+              worker_run_id: 'worker-r9-t6-review-retry',
+              lease_token: payload.lease.lease_token,
+              summary: 'review PASS for recovered task',
+              proof: { verdict: 'PASS', reviewer: 'shun-designer-1', reason: 'recovered task proof accepted' },
+            });
+          }
+          return { worker_run_id: tick3QueuedResults[tick3QueuedResults.length - 1].worker_run_id };
+        },
+        drainResults: async () => tick3QueuedResults.splice(0),
+      },
+    });
+
+    const tick3 = await tick3Daemon.tick();
+    // Recoverable task should now be claimed and dispatched (from retry_ready)
+    expect(tick3.claimed_task_ids).toEqual(['task-r9-t6-recoverable']);
+    expect(tick3.dispatched_task_ids).toEqual(['task-r9-t6-recoverable']);
+    expect(tick3.ingested_task_ids).toEqual(['task-r9-t6-recoverable']);
+    // Review task created for pm_audit
+    expect(tick3.review_task_ids).toHaveLength(1);
+
+    // ══════════════════════════════════════════════════════════
+    // TICK 4: Review PASS for the recovered task
+    // ══════════════════════════════════════════════════════════
+    const reviewAfterRecovery = await prisma.review.findFirstOrThrow({
+      where: { project_id: projectId, original_task_id: 'task-r9-t6-recoverable' },
+    });
+    const reviewTaskIdAfterRecovery = reviewAfterRecovery.review_task_id!;
+
+    const tick4QueuedResults: any[] = [];
+    const tick4Daemon = new V8DaemonTickLoop({
+      prisma,
+      project_id: projectId,
+      workerClient: {
+        dispatch: async (payload) => {
+          tick4QueuedResults.push({
+            project_id: projectId,
+            task_id: payload.task.id,
+            worker_run_id: 'worker-r9-t6-review-pass',
+            lease_token: payload.lease.lease_token,
+            summary: 'review PASS after restart recovery',
+            proof: { verdict: 'PASS', reviewer: 'shun-designer-1' },
+          });
+          return { worker_run_id: 'worker-r9-t6-review-pass' };
+        },
+        drainResults: async () => tick4QueuedResults.splice(0),
+      },
+    });
+
+    const tick4 = await tick4Daemon.tick();
+    expect(tick4.dispatched_task_ids).toEqual([reviewTaskIdAfterRecovery]);
+    expect(tick4.ingested_task_ids).toEqual([reviewTaskIdAfterRecovery]);
+    expect(tick4.steps.find((s) => s.name === 'review')?.details)
+      .toContain(`review-pass-closed:task-r9-t6-recoverable:${reviewTaskIdAfterRecovery}`);
+
+    // ══════════════════════════════════════════════════════════
+    // FINAL VERIFICATION
+    // ══════════════════════════════════════════════════════════
+
+    // Both tasks should be completed
+    const finalRecoverable = await prisma.task.findFirstOrThrow({
+      where: { project_id: projectId, id: 'task-r9-t6-recoverable' },
+    });
+    expect(finalRecoverable.status).toBe('completed');
+    expect(JSON.parse(finalRecoverable.proof_data || '{}')).toMatchObject({
+      event: 'review_pass',
+      from_status: 'review_pending',
+      to_status: 'completed',
+    });
+
+    const finalReviewTask = await prisma.task.findFirstOrThrow({
+      where: { project_id: projectId, id: reviewTaskIdAfterRecovery },
+    });
+    expect(finalReviewTask.status).toBe('completed');
+
+    // Cross-project isolation preserved across restart
+    const otherTask = await prisma.task.findFirstOrThrow({
+      where: { project_id: otherProjectId, id: 'task-r9-t6-other-sentinel' },
+    });
+    expect(otherTask.status).toBe('created');
+
+    // No stale runs left in running state
+    const staleRuns = await prisma.run.findMany({
+      where: { project_id: projectId, status: 'running' },
+    });
+    expect(staleRuns).toHaveLength(0);
+
+    // Verify both tasks are completed before closeout check
+    const finalRecoverableCheck = await prisma.task.findFirstOrThrow({
+      where: { project_id: projectId, id: 'task-r9-t6-recoverable' },
+    });
+    const finalFreshCheck = await prisma.task.findFirstOrThrow({
+      where: { project_id: projectId, id: 'task-r9-t6-fresh-after-restart' },
+    });
+    expect(finalRecoverableCheck.status).toBe('completed');
+    expect(finalFreshCheck.status).toBe('completed');
+
+    // Group should be archived (all tasks terminal) — closeout happens in the same tick
+    // as the last task completion (tick 4 closeout step)
+    const tick4Closeout = tick4.closeout;
+    expect(tick4Closeout.archived_group_ids).toEqual(['r9-t6-group']);
+    expect(tick4Closeout.group_summary_report_ids).toHaveLength(1);
+
+    const summaryReport = await prisma.report.findFirstOrThrow({
+      where: { project_id: projectId, message_type: 'group_summary', status: 'sent' },
+    });
+    expect(JSON.parse(summaryReport.payload_json)).toMatchObject({
+      project_id: projectId,
+      group_id: 'r9-t6-group',
+      completed: 2,
+      total: 2,
+    });
+
+    // Audit trail: recoverable task has both the original (error) run and retry run
+    const allRuns = await prisma.run.findMany({
+      where: { project_id: projectId, task_id: 'task-r9-t6-recoverable' },
+      orderBy: [{ run_id: 'asc' }],
+    });
+    expect(allRuns.length).toBeGreaterThanOrEqual(2);
+    const originalStaleRun = allRuns.find((r) => r.status === 'error');
+    expect(originalStaleRun).toBeTruthy();
+    expect(originalStaleRun?.error_stack).toContain('timeout_recovery');
+    const retryRun = allRuns.find((r) => r.status === 'success');
+    expect(retryRun).toBeTruthy();
+
+    // Dispatch audit: tick1 dispatched recoverable; tick2 dispatched fresh;
+    // tick3 dispatched recoverable retry (review task created but not dispatched);
+    // tick4 dispatched review task
+    expect(tick2Dispatches).toEqual(['task-r9-t6-fresh-after-restart:long-coder-1']);
+    expect(tick3Dispatches).toEqual(['task-r9-t6-recoverable:long-coder-1']);
+  });
+
+  test('daemon source is V8-only: no legacy DAL/ignored DB/raw SQL and no direct cron lifecycle mutation', () => {
     const source = fs.readFileSync(path.join(repoRoot, 'src/daemon/v8_tick_loop.ts'), 'utf8');
     expect(source).toContain('transitionTask(');
     expect(source).toContain('V8RuntimeApiService');
@@ -846,5 +1787,6 @@ describe('V8-R4 daemon tick loop five-step rebuild', () => {
     expect(source).not.toMatch(/taskTable\.updateMany\([\s\S]*status\s*:\s*['"]completed['"]/);
     expect(source).not.toMatch(/data:\s*\{[\s\S]*status\s*:\s*['"]completed['"][\s\S]*\}\s*\}\);/);
     expect(source).not.toMatch(/prisma\.taskGroup\.(update|updateMany)\([\s\S]*status\s*:/);
+    expect(source).not.toMatch(/cronjob\.(start|stop|pause|resume)|startCronjob|stopCronjob|pauseCronjob|resumeCronjob|updateCronjobStatus\(/i);
   });
 });
