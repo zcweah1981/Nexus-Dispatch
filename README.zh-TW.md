@@ -1,6 +1,6 @@
 <div align="center">
   <h1>
-    <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" height="56" style="vertical-align: middle;" />
+    <img src="./docs/assets/logo.png" alt="Nexus Dispatch logo" height="23" style="vertical-align: middle;" />
     Nexus Dispatch
   </h1>
   <p><strong>PM-driven multi-agent control plane.</strong></p>
