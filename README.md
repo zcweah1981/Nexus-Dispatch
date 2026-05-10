@@ -194,7 +194,7 @@ Nexus Dispatch enforces strict boundaries around credentials and data:
 
 - **No real secrets in the repo.** README, docker-compose, and systemd examples use `$VARIABLE` placeholders. Copy `.env.example` and fill values locally.
 - **API-only data access.** SQLite is internal to the API server. No module, worker, or UI gets direct DB access.
-- **Bearer token on every request.** All `/api/v1/*` endpoints require `Authorization: Bearer ***` . Unauthenticated requests return `401`.
+- **Bearer token on every request.** All `/api/v1/*` endpoints require `Authorization: Bearer ***`. Unauthenticated requests return `401`.
 - **Per-agent Telegram bots.** Each agent sends notifications via its own bot token. The Daemon never uses a shared bot or central token.
 - **No sensitive IDs in chat.** Task, run, dispatch, and trace IDs stay in the database and runtime proof. Group chat messages are human-readable summaries only.
 - **TLS for public endpoints.** If the API is exposed beyond localhost, enforce HTTPS via reverse proxy (Nginx, Caddy, Cloudflare Tunnel).

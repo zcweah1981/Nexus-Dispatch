@@ -35,4 +35,4 @@ Nexus Dispatch 是一個多 Agent 編排控制平面——用單一 PM 大腦來
 
 ## 授權
 
-MIT License
+私有倉庫。保留所有權利。

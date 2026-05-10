@@ -194,7 +194,7 @@ Nexus Dispatch 在凭据和数据周围执行严格边界：
 
 - **仓库不含真实密钥。** README、docker-compose 和 systemd 示例均使用 `$VARIABLE` 占位符。从 `.env.example` 复制后在本地填写。
 - **API-only 数据访问。** SQLite 仅在 API Server 内部可见。任何模块、Worker 或 UI 都不直接访问 DB。
-- **每次请求 Bearer Token。** 所有 `/api/v1/*` 端点要求 `Authorization: Bearer ***` 。未认证请求返回 `401`。
+- **每次请求 Bearer Token。** 所有 `/api/v1/*` 端点要求 `Authorization: Bearer ***`。未认证请求返回 `401`。
 - **每 Agent 独立 Telegram Bot。** 每个 Agent 用自己的 bot token 发送通知。Daemon 从不使用共享 bot 或中心化 token。
 - **聊天不含敏感 ID。** Task、Run、Dispatch 和 Trace ID 留在数据库和 Runtime Proof 中。群聊消息仅为人类可读的摘要。
 - **公网端点必须 TLS。** API 暴露到 localhost 以外时，必须通过反向代理（Nginx、Caddy、Cloudflare Tunnel）强制 HTTPS。
