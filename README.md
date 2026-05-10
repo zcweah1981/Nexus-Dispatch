@@ -1,7 +1,5 @@
 <div align="center">
-  <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" width="140" />
-  <br />
-  <img src="./docs/assets/nexus-hero.png" alt="Nexus Dispatch — PM-driven control plane for long-running multi-agent work" width="720" />
+  <img src="./docs/assets/nexus-logo-user-source.jpg" alt="Nexus Dispatch" width="140" />
   <h1>Nexus Dispatch</h1>
   <p><strong>PM-driven control plane for long-running multi-agent work.</strong></p>
   <p>
@@ -19,21 +17,13 @@
   <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
 </p>
 
+<div align="center">
+  <img src="./docs/assets/nexus-hero-user-source.jpg" alt="Nexus Dispatch — PM-driven control plane for long-running multi-agent work" width="720" />
+</div>
+
 ---
 
 > A single PM brain dispatches work to heterogeneous AI agents, tracks every state transition through a state-machine runtime, and verifies completion with structured proof gates — unattended, observable, zero-trust.
-
----
-
-## What It Does
-
-Nexus Dispatch does three things — and does them well:
-
-| | What | How |
-| --- | --- | --- |
-| 📤 **Dispatch** | Route the right task to the right agent at the right time. | DAG-based dependency resolution, lane routing, priority evaluation. No manual assignment. |
-| 📡 **Track** | Know where every task stands, always. | FSM-driven lifecycle (`created → dispatched → running → completion_pending → completed`). Every transition through REST API. |
-| ✅ **Verify** | Nothing is "done" until proof passes the gate. | Workers submit structured artifacts (Git SHA, file hashes, screenshots). Review policy routes high-risk work to human review; routine work auto-advances on machine proof. |
 
 ---
 
@@ -50,76 +40,15 @@ Nexus Dispatch does three things — and does them well:
 
 ---
 
-## Core Concepts
+## What It Does
 
-| Term | Definition |
-| --- | --- |
-| **PM Brain** | The single scheduling authority. Resolves DAGs, evaluates priorities, gates reviews. Implemented as a headless Daemon tick loop. |
-| **Worker** | A stateless executor. Claims a task, runs it, submits proof. Never makes scheduling decisions. |
-| **Lane** | Worker specialization: `DEV`, `DESIGN`, `OPS`, `CONTENT`. Tasks declare which lane they need. |
-| **Dialect** | Communication protocol between Daemon and Worker: `hermes` (Telegram-native) or `openclaw` (HTTP webhook). |
-| **FSM** | Finite State Machine governing task lifecycle. No agent can skip states or self-mark done. |
-| **Proof Gate** | Completion gate requiring structured artifacts. Types: `repo_proof`, `run_proof`, `review_proof`, `report_proof`, `ops_proof`. |
-| **Review Policy** | Routing rule for task review: `pm_audit_immediate` (human gate) or `group_only` (machine proof unlocks downstream). |
-| **Blueprint** | Frozen project plan. Phase-gated: freeze → thaw next phase → advance milestone. |
-| **SSoT** | Single Source of Truth. SQLite visible only inside the API server process. |
+Nexus Dispatch does three things — and does them well:
 
----
-
-## Product Flow
-
-![Nexus Dispatch product flow — dispatch, track, verify with proof-based gates](./docs/assets/nexus-product-flow-en.png)
-
-1. **PM creates a task** with lane, dependencies, and review policy.
-2. **PM Brain dispatches it** to the right worker via the Runtime API.
-3. **Worker executes and submits proof** — artifacts come back through the same API boundary.
-4. **Review gate accepts or rejects** — high-risk tasks require human review; routine work auto-advances on machine-verified proof.
-5. **Telegram + WebUI reflect the result** — human-readable, no internal IDs exposed.
-
----
-
-## Architecture
-
-![Nexus Dispatch architecture — single PM brain, multi-agent fleet, API control plane, proof closed loop](./docs/assets/nexus-architecture-en.png)
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Human Layer                         │
-│  Telegram (per-agent bots)  ·  WebUI (read-only SSE)    │
-└──────────┬──────────────────────────┬───────────────────┘
-           │ notifications            │ observability
-           ▼                          ▼
-┌─────────────────────────────────────────────────────────┐
-│              Runtime API (Express :8000)                 │
-│  ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐  │
-│  │ Tasks   │ │ Runs     │ │ Reports  │ │ Blueprints │  │
-│  │ Agents  │ │ Cronjobs │ │ Artifacts│ │ Review     │  │
-│  └─────────┘ └──────────┘ └──────────┘ └────────────┘  │
-│              Bearer Token Auth · /api/v1/runtime/*       │
-└──────────┬──────────────────────────────────┬───────────┘
-           │ tick loop                        │ register
-           ▼                                  ▼
-┌────────────────────┐            ┌───────────────────────┐
-│  PM Daemon         │  dispatch  │  Worker Agents        │
-│  · DAG resolution  │ ────────▶  │  · claim → run        │
-│  · Priority eval   │  ◀──────── │  · submit proof       │
-│  · Review gating   │  artifact  │  · POST results       │
-└────────────────────┘            └───────────────────────┘
-           │
-           ▼
-┌────────────────────┐
-│  SQLite (SSoT)     │  ← API-internal only
-│  Prisma DAL        │    No external access
-└────────────────────┘
-```
-
-**Key invariant:** SQLite is visible only inside the API server process. Workers, Daemon, and WebUI never touch the database directly.
-
----
-
-## Sanitized Usage Screenshot
-
-![Nexus Dispatch sanitized usage screenshot — WebUI settings and registry from a live local runtime](./docs/assets/nexus-sanitized-usage-screenshot.png)
+| | What | How |
+| --- | --- | --- |
+| 📤 **Dispatch** | Route the right task to the right agent at the right time. | DAG-based dependency resolution, lane routing, priority evaluation. No manual assignment. |
+| 📡 **Track** | Know where every task stands, always. | FSM-driven lifecycle (`created → dispatched → running → completion_pending → completed`). Every transition through REST API. |
+| ✅ **Verify** | Nothing is "done" until proof passes the gate. | Workers submit structured artifacts (Git SHA, file hashes, screenshots). Review policy routes high-risk work to human review; routine work auto-advances on machine proof. |
 
 ---
 
@@ -262,54 +191,70 @@ Workers POST structured proof to `POST /api/v1/runtime/tasks/:taskId/proof`:
 
 ---
 
-## Project Status & Recommended Use
+## Core Concepts
 
-| | Status |
+| Term | Definition |
 | --- | --- |
-| **Phase** | V8 Clean Rebuild (R0–R9) |
-| **Current** | Active development — control plane MVP |
-| **Stable capabilities** | Schema + Prisma DAL · Runtime API + FSM Controller · Daemon / Dispatcher · Review / Acceptance · Completion Reports · Telegram Notifications |
-| **In progress** | WebUI rebuild · Project Cron Registry · E2E Release Candidate |
-
-### Recommended Use
-
-- ✅ **Best for:** Teams running 3+ heterogeneous AI agents on long-running tasks (coding, design, content, ops) who need a PM brain to coordinate dispatch, track progress, and verify delivery.
-- ✅ **Best for:** Solo builders who want fire-and-forget multi-agent workflows without building orchestration from scratch.
-- ⚠️ **Not ready for:** Multi-tenant SaaS, K8s auto-scaling, or agent marketplace use cases.
-
----
-
-## Security Boundary
-
-- **No real secrets in the repo.** README, docker-compose, and systemd examples use `$VARIABLE` placeholders. Copy `.env.example` and fill values locally.
-- **API-only data access.** SQLite is internal to the API server. No module, worker, or UI gets direct DB access.
-- **Bearer token on every request.** All `/api/v1/*` endpoints require `Authorization: Bearer <token>`. Unauthenticated requests return `401`.
-- **Per-agent Telegram bots.** Each agent sends notifications via its own bot token. No shared bot. No leaked credentials in group chat.
-- **No sensitive IDs in chat.** Task, run, dispatch, and trace IDs stay in the database and runtime proof. Group chat messages are human-readable summaries only.
-- **TLS for public endpoints.** If the API is exposed beyond localhost, enforce HTTPS via reverse proxy (Nginx, Caddy, Cloudflare Tunnel).
+| **PM Brain** | The single scheduling authority. Resolves DAGs, evaluates priorities, gates reviews. Implemented as a headless Daemon tick loop. |
+| **Worker** | A stateless executor. Claims a task, runs it, submits proof. Never makes scheduling decisions. |
+| **Lane** | Worker specialization: `DEV`, `DESIGN`, `OPS`, `CONTENT`. Tasks declare which lane they need. |
+| **Dialect** | Communication protocol between Daemon and Worker: `hermes` (Telegram-native) or `openclaw` (HTTP webhook). |
+| **FSM** | Finite State Machine governing task lifecycle. No agent can skip states or self-mark done. |
+| **Proof Gate** | Completion gate requiring structured artifacts. Types: `repo_proof`, `run_proof`, `review_proof`, `report_proof`, `ops_proof`. |
+| **Review Policy** | Routing rule for task review: `pm_audit_immediate` (human gate) or `group_only` (machine proof unlocks downstream). |
+| **Blueprint** | Frozen project plan. Phase-gated: freeze → thaw next phase → advance milestone. |
+| **SSoT** | Single Source of Truth. SQLite visible only inside the API server process. |
 
 ---
 
-## Project Structure
+## Product Flow
+
+![Nexus Dispatch product flow — create task, dispatch, worker execution, proof, review, verified delivery](./docs/assets/nexus-product-flow-en.png)
+
+1. **Create task** — PM defines lane, priority, dependencies, and review policy.
+2. **Dispatch** — PM Brain resolves DAG order and routes the run to the right worker lane.
+3. **Worker execute** — Worker claims the task, performs the work, and returns structured output.
+4. **Proof + artifact** — Git SHA, files, images, and completion payloads come back through the Runtime API.
+5. **Review + verified delivery** — Policy decides auto-pass, rework, or human review before visible delivery.
+
+---
+
+## Architecture
+
+![Nexus Dispatch architecture — single PM brain, multi-agent fleet, API control plane, proof closed loop](./docs/assets/nexus-architecture-en.png)
 
 ```
-Nexus-Dispatch/
-├── src/
-│   ├── api/           # Express server, V8 Runtime API routes
-│   ├── daemon/        # PM Daemon tick loop
-│   ├── dal/           # Prisma data access layer
-│   └── webui/         # WebUI dashboard (React/Vite)
-├── prisma/            # Schema and migrations
-├── tests/             # Unit + integration tests (Jest)
-├── scripts/           # health-check.sh, systemd service units
-├── docs/
-│   ├── install.md     # Full installation & deployment guide
-│   ├── assets/        # Hero, architecture, product flow images
-│   └── v8/            # Runtime proof documents and contracts
-├── docker-compose.yml
-├── .env.example
-└── README.md          # ← You are here
+┌─────────────────────────────────────────────────────────┐
+│                     Human Layer                         │
+│  Telegram (per-agent bots)  ·  WebUI (read-only SSE)    │
+└──────────┬──────────────────────────┬───────────────────┘
+           │ notifications            │ observability
+           ▼                          ▼
+┌─────────────────────────────────────────────────────────┐
+│              Runtime API (Express :8000)                 │
+│  ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐  │
+│  │ Tasks   │ │ Runs     │ │ Reports  │ │ Blueprints │  │
+│  │ Agents  │ │ Cronjobs │ │ Artifacts│ │ Review     │  │
+│  └─────────┘ └──────────┘ └──────────┘ └────────────┘  │
+│              Bearer Token Auth · /api/v1/runtime/*       │
+└──────────┬──────────────────────────────────┬───────────┘
+           │ tick loop                        │ register
+           ▼                                  ▼
+┌────────────────────┐            ┌───────────────────────┐
+│  PM Daemon         │  dispatch  │  Worker Agents        │
+│  · DAG resolution  │ ────────▶  │  · claim → run        │
+│  · Priority eval   │  ◀──────── │  · submit proof       │
+│  · Review gating   │  artifact  │  · POST results       │
+└────────────────────┘            └───────────────────────┘
+           │
+           ▼
+┌────────────────────┐
+│  SQLite (SSoT)     │  ← API-internal only
+│  Prisma DAL        │    No external access
+└────────────────────┘
 ```
+
+**Key invariant:** SQLite is visible only inside the API server process. Workers, Daemon, and WebUI never touch the database directly.
 
 ---
 
@@ -326,17 +271,20 @@ Nexus-Dispatch/
 
 ---
 
-## Verification Commands
+## Project Status
 
-```bash
-npm run build                                    # Compile TypeScript
-npx prisma validate                              # Validate schema
-npm test -- --runInBand                          # Run test suite
-npm --prefix src/webui run build                 # Build WebUI
-git diff --check                                 # Catch whitespace issues
-npm run validate:api-deploy -- --skip-health     # Prisma + V8 deploy checks
-./scripts/health-check.sh --quick || true        # Live deployment health
-```
+| | Status |
+| --- | --- |
+| **Phase** | V8 Clean Rebuild (R0–R9) |
+| **Current** | Active development — control plane MVP |
+| **Stable capabilities** | Schema + Prisma DAL · Runtime API + FSM Controller · Daemon / Dispatcher · Review / Acceptance · Completion Reports · Telegram Notifications |
+| **In progress** | WebUI rebuild · Project Cron Registry · E2E Release Candidate |
+
+### Recommended Use
+
+- ✅ **Best for:** Teams running 3+ heterogeneous AI agents on long-running tasks (coding, design, content, ops) who need a PM brain to coordinate dispatch, track progress, and verify delivery.
+- ✅ **Best for:** Solo builders who want fire-and-forget multi-agent workflows without building orchestration from scratch.
+- ⚠️ **Not ready for:** Multi-tenant SaaS, K8s auto-scaling, or agent marketplace use cases.
 
 ---
 

@@ -1,7 +1,5 @@
 <div align="center">
-  <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" width="140" />
-  <br />
-  <img src="./docs/assets/nexus-hero.png" alt="Nexus Dispatch — 面向長會話任務的 PM 驅動多 Agent 控制平面" width="720" />
+  <img src="./docs/assets/nexus-logo-user-source.jpg" alt="Nexus Dispatch" width="140" />
   <h1>Nexus Dispatch</h1>
   <p><strong>面向長會話任務的 PM 驅動多 Agent 控制平面。</strong></p>
   <p>
@@ -19,21 +17,13 @@
   <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
 </p>
 
+<div align="center">
+  <img src="./docs/assets/nexus-hero-user-source.jpg" alt="Nexus Dispatch — 面向長會話任務的 PM 驅動多 Agent 控制平面" width="720" />
+</div>
+
 ---
 
 > 一個 PM 大腦中樞向異構 AI Agent 派發任務，透過狀態機執行時期追蹤每次狀態流轉，並以結構化證據門控驗證完成——全程無人值守、全程可觀察、零信任閉環。
-
----
-
-## 它做什麼
-
-Nexus Dispatch 只做三件事——並且做好：
-
-| | 做什麼 | 怎麼做 |
-| --- | --- | --- |
-| 📤 **派發** | 在正確的時間把正確的任務派給正確的 Agent。 | DAG 依賴解析、泳道路由、優先級評估。無需人工指派。 |
-| 📡 **追蹤** | 隨時知道每個任務在哪一步。 | FSM 驅動的生命週期（`created → dispatched → running → completion_pending → completed`）。每次流轉走 REST API。 |
-| ✅ **驗證** | 證據不過門控，就不算「完成」。 | Worker 提交結構化交付物（Git SHA、檔案雜湊、截圖）。高風險任務走人工審核；常規任務在機器驗證後自動推進。 |
 
 ---
 
@@ -50,76 +40,15 @@ Nexus Dispatch 只做三件事——並且做好：
 
 ---
 
-## 核心概念
+## 它做什麼
 
-| 術語 | 定義 |
-| --- | --- |
-| **PM 大腦** | 唯一的排程權威。解析 DAG、評估優先級、門控審核。實作為無頭 Daemon Tick Loop。 |
-| **Worker** | 無狀態執行器。認領任務、執行、提交證據。不做排程決策。 |
-| **泳道 (Lane)** | Worker 的專業方向：`DEV`、`DESIGN`、`OPS`、`CONTENT`。任務聲明所需泳道。 |
-| **方言 (Dialect)** | Daemon 與 Worker 的通訊協定：`hermes`（Telegram 原生）或 `openclaw`（HTTP Webhook）。 |
-| **FSM** | 有限狀態機，管理任務生命週期。任何 Agent 都不能跳過狀態或自行標記完成。 |
-| **證據門控 (Proof Gate)** | 完成門控，要求結構化交付物。類型：`repo_proof`、`run_proof`、`review_proof`、`report_proof`、`ops_proof`。 |
-| **審核策略 (Review Policy)** | 任務審核的路由規則：`pm_audit_immediate`（人工門控）或 `group_only`（機器證據解鎖下游）。 |
-| **藍圖 (Blueprint)** | 凍結的專案計畫。按階段門控：凍結 → 解凍下一階段 → 推進里程碑。 |
-| **SSoT** | 單一真相源。SQLite 僅在 API Server 行程內可見，外部無任何存取途徑。 |
+Nexus Dispatch 只做三件事——並且做好：
 
----
-
-## 工作流全景
-
-![Nexus Dispatch 工作流全景 — 派發、追蹤、驗證、證據門控](./docs/assets/nexus-product-flow-zh-TW.png)
-
-1. **PM 建立任務**，指定泳道、依賴和審核策略。
-2. **PM 大腦派發**到對應的專業 Worker。
-3. **Worker 執行並提交證據**——交付物透過同一 API 邊界回傳。
-4. **審核門控裁決**——高風險任務需要人工審核；常規任務在機器驗證後自動推進。
-5. **Telegram + WebUI 展示結果**——人類可讀，不暴露內部 ID。
-
----
-
-## 架構
-
-![Nexus Dispatch 架構 — 單一 PM 大腦、多 Agent 協作、API 控制平面、證據閉環](./docs/assets/nexus-architecture-zh-TW.png)
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                     人類層                               │
-│  Telegram (每 Agent 獨立 bot)  ·  WebUI (唯讀 SSE)       │
-└──────────┬──────────────────────────┬───────────────────┘
-           │ 通知                      │ 可觀測
-           ▼                          ▼
-┌─────────────────────────────────────────────────────────┐
-│              Runtime API (Express :8000)                 │
-│  ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐  │
-│  │ Tasks   │ │ Runs     │ │ Reports  │ │ Blueprints │  │
-│  │ Agents  │ │ Cronjobs │ │ Artifacts│ │ Review     │  │
-│  └─────────┘ └──────────┘ └──────────┘ └────────────┘  │
-│              Bearer Token Auth · /api/v1/runtime/*       │
-└──────────┬──────────────────────────────────┬───────────┘
-           │ Tick Loop                        │ 註冊
-           ▼                                  ▼
-┌────────────────────┐            ┌───────────────────────┐
-│  PM Daemon         │  派發      │  Worker Agents        │
-│  · DAG 解析        │ ────────▶  │  · claim → run        │
-│  · 優先級評估      │  ◀──────── │  · 提交證據           │
-│  · 審核門控        │  交付物    │  · POST 結果          │
-└────────────────────┘            └───────────────────────┘
-           │
-           ▼
-┌────────────────────┐
-│  SQLite (SSoT)     │  ← 僅 API 行程內部可見
-│  Prisma DAL        │    外部無任何存取途徑
-└────────────────────┘
-```
-
-**核心不變量：** SQLite 僅在 API Server 行程內可見。Worker、Daemon 和 WebUI 絕不直接操作資料庫。
-
----
-
-## 真實使用截圖
-
-![Nexus Dispatch 真實使用截圖 — 來自本地真實執行時的 WebUI 設定與註冊表頁面](./docs/assets/nexus-sanitized-usage-screenshot.png)
+| | 做什麼 | 怎麼做 |
+| --- | --- | --- |
+| 📤 **派發** | 在正確的時間把正確的任務派給正確的 Agent。 | DAG 依賴解析、泳道路由、優先級評估。無需人工指派。 |
+| 📡 **追蹤** | 隨時知道每個任務在哪一步。 | FSM 驅動的生命週期（`created → dispatched → running → completion_pending → completed`）。每次流轉走 REST API。 |
+| ✅ **驗證** | 證據不過門控，就不算「完成」。 | Worker 提交結構化交付物（Git SHA、檔案雜湊、截圖）。高風險任務走人工審核；常規任務在機器驗證後自動推進。 |
 
 ---
 
@@ -262,54 +191,70 @@ Worker 向 `POST /api/v1/runtime/tasks/:taskId/proof` 提交結構化證據：
 
 ---
 
-## 專案狀態與推薦使用
+## 核心概念
 
-| | 狀態 |
+| 術語 | 定義 |
 | --- | --- |
-| **階段** | V8 Clean Rebuild（R0–R9） |
-| **當前** | 活躍開發中——控制平面 MVP |
-| **穩定能力** | Schema + Prisma DAL · Runtime API + FSM Controller · Daemon / Dispatcher · Review / Acceptance · Completion Reports · Telegram 通知 |
-| **進行中** | WebUI 重建 · Project Cron Registry · E2E Release Candidate |
-
-### 推薦使用
-
-- ✅ **最適合：** 運行 3+ 異構 AI Agent 處理長任務（編碼、設計、內容、維運）的團隊，需要 PM 大腦協調派發、追蹤進度、驗證交付。
-- ✅ **最適合：** 個人開發者想要發射後不管的多 Agent 工作流，無需從零搭建編排系統。
-- ⚠️ **尚未準備好：** 多租戶 SaaS、K8s 自動伸縮或 Agent 市場場景。
-
----
-
-## 安全邊界
-
-- **儲存庫不含真實密鑰。** README、docker-compose 和 systemd 範例均使用 `$VARIABLE` 佔位符。從 `.env.example` 複製後在本地填寫。
-- **API-only 資料存取。** SQLite 僅在 API Server 內部可見。任何模組、Worker 或 UI 都不直接存取資料庫。
-- **每次請求 Bearer Token。** 所有 `/api/v1/*` 端點都需要 `Authorization: Bearer <token>`。無認證請求回傳 `401`。
-- **每 Agent 獨立 Telegram Bot。** 每個 Agent 用自己的 bot token 發送通知。無共享 bot，憑證不洩露到群聊。
-- **聊天不含敏感 ID。** Task、Run、Dispatch 和 Trace ID 留在資料庫和 Runtime Proof 中。群聊訊息僅為人類可讀的摘要。
-- **公網端點必須 TLS。** API 暴露到 localhost 以外時，必須透過反向代理（Nginx、Caddy、Cloudflare Tunnel）強制 HTTPS。
+| **PM 大腦** | 唯一的排程權威。解析 DAG、評估優先級、門控審核。實作為無頭 Daemon Tick Loop。 |
+| **Worker** | 無狀態執行器。認領任務、執行、提交證據。不做排程決策。 |
+| **泳道 (Lane)** | Worker 的專業方向：`DEV`、`DESIGN`、`OPS`、`CONTENT`。任務聲明所需泳道。 |
+| **方言 (Dialect)** | Daemon 與 Worker 的通訊協定：`hermes`（Telegram 原生）或 `openclaw`（HTTP Webhook）。 |
+| **FSM** | 有限狀態機，管理任務生命週期。任何 Agent 都不能跳過狀態或自行標記完成。 |
+| **證據門控 (Proof Gate)** | 完成門控，要求結構化交付物。類型：`repo_proof`、`run_proof`、`review_proof`、`report_proof`、`ops_proof`。 |
+| **審核策略 (Review Policy)** | 任務審核的路由規則：`pm_audit_immediate`（人工門控）或 `group_only`（機器證據解鎖下游）。 |
+| **藍圖 (Blueprint)** | 凍結的專案計畫。按階段門控：凍結 → 解凍下一階段 → 推進里程碑。 |
+| **SSoT** | 單一真相源。SQLite 僅在 API Server 行程內可見，外部無任何存取途徑。 |
 
 ---
 
-## 專案結構
+## 工作流全景
+
+![Nexus Dispatch 工作流全景 — 建立任務、派發執行、Worker 執行、Proof 與交付物、審核與驗證交付](./docs/assets/nexus-product-flow-zh-TW.png)
+
+1. **建立任務** —— PM 定義泳道、優先級、依賴關係與審核策略。
+2. **派發執行** —— 大腦中樞解析 DAG 順序，並把 Run 路由到正確的 Worker 泳道。
+3. **Worker 執行** —— Worker 認領任務、執行工作，並回傳結構化結果。
+4. **Proof 與交付物** —— Git SHA、檔案、圖片與完成 payload 統一透過 Runtime API 回流。
+5. **審核與驗證交付** —— 策略決定自動通過、返工或人工審核，最後生成可見交付。
+
+---
+
+## 架構
+
+![Nexus Dispatch 架構 — 單一 PM 大腦、多 Agent 協作、API 控制平面、證據閉環](./docs/assets/nexus-architecture-zh-TW.png)
 
 ```
-Nexus-Dispatch/
-├── src/
-│   ├── api/           # Express Server，V8 Runtime API 路由
-│   ├── daemon/        # PM Daemon Tick Loop
-│   ├── dal/           # Prisma 資料存取層
-│   └── webui/         # WebUI 儀表板 (React/Vite)
-├── prisma/            # Schema 和遷移
-├── tests/             # 單元 + 整合測試 (Jest)
-├── scripts/           # health-check.sh，systemd 服務單元
-├── docs/
-│   ├── install.md     # 完整安裝與部署指南（英文）
-│   ├── assets/        # Hero 圖和架構圖 (SVG + PNG)
-│   └── v8/            # Runtime Proof 文件和 API 契約
-├── docker-compose.yml
-├── .env.example
-└── README.md          # 英文主文件
+┌─────────────────────────────────────────────────────────┐
+│                     人類層                               │
+│  Telegram (每 Agent 獨立 bot)  ·  WebUI (唯讀 SSE)       │
+└──────────┬──────────────────────────┬───────────────────┘
+           │ 通知                      │ 可觀測
+           ▼                          ▼
+┌─────────────────────────────────────────────────────────┐
+│              Runtime API (Express :8000)                 │
+│  ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐  │
+│  │ Tasks   │ │ Runs     │ │ Reports  │ │ Blueprints │  │
+│  │ Agents  │ │ Cronjobs │ │ Artifacts│ │ Review     │  │
+│  └─────────┘ └──────────┘ └──────────┘ └────────────┘  │
+│              Bearer Token Auth · /api/v1/runtime/*       │
+└──────────┬──────────────────────────────────┬───────────┘
+           │ Tick Loop                        │ 註冊
+           ▼                                  ▼
+┌────────────────────┐            ┌───────────────────────┐
+│  PM Daemon         │  派發      │  Worker Agents        │
+│  · DAG 解析        │ ────────▶  │  · claim → run        │
+│  · 優先級評估      │  ◀──────── │  · 提交證據           │
+│  · 審核門控        │  交付物    │  · POST 結果          │
+└────────────────────┘            └───────────────────────┘
+           │
+           ▼
+┌────────────────────┐
+│  SQLite (SSoT)     │  ← 僅 API 行程內部可見
+│  Prisma DAL        │    外部無任何存取途徑
+└────────────────────┘
 ```
+
+**核心不變量：** SQLite 僅在 API Server 行程內可見。Worker、Daemon 和 WebUI 絕不直接操作資料庫。
 
 ---
 
@@ -326,17 +271,20 @@ Nexus-Dispatch/
 
 ---
 
-## 驗證指令
+## 專案狀態
 
-```bash
-npm run build                                    # 編譯 TypeScript
-npx prisma validate                              # 校驗 Schema
-npm test -- --runInBand                          # 執行測試套件
-npm --prefix src/webui run build                 # 建構 WebUI
-git diff --check                                 # 檢查空白問題
-npm run validate:api-deploy -- --skip-health     # Prisma + V8 部署檢查
-./scripts/health-check.sh --quick || true        # 部署健康檢查（開發環境 warning 正常）
-```
+| | 狀態 |
+| --- | --- |
+| **階段** | V8 Clean Rebuild（R0–R9） |
+| **當前** | 活躍開發中——控制平面 MVP |
+| **穩定能力** | Schema + Prisma DAL · Runtime API + FSM Controller · Daemon / Dispatcher · Review / Acceptance · Completion Reports · Telegram 通知 |
+| **進行中** | WebUI 重建 · Project Cron Registry · E2E Release Candidate |
+
+### 推薦使用
+
+- ✅ **最適合：** 運行 3+ 異構 AI Agent 處理長任務（編碼、設計、內容、維運）的團隊，需要 PM 大腦協調派發、追蹤進度、驗證交付。
+- ✅ **最適合：** 個人開發者想要發射後不管的多 Agent 工作流，無需從零搭建編排系統。
+- ⚠️ **尚未準備好：** 多租戶 SaaS、K8s 自動伸縮或 Agent 市場場景。
 
 ---
 
