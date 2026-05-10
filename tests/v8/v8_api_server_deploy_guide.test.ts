@@ -51,4 +51,29 @@ describe('V8-R13 API server deployment guide and validation examples', () => {
     expect(scriptSource).toMatch(/\/api\/v1\/runtime\/tasks\/pending/);
     expect(scriptSource).not.toMatch(/better-sqlite3|sqlite3|data\/nexus\.db|prisma\/data\/nexus\.db|\$queryRaw|\$executeRaw/);
   });
+
+  test('README Runtime API examples match schemas and Jest tooling', () => {
+    const packageJson = JSON.parse(read('package.json')) as { scripts: Record<string, string> };
+    const schemas = read('src/api/schemas.ts');
+    const routeSource = read('src/api/routes.ts');
+
+    expect(packageJson.scripts.test).toBe('jest');
+    expect(schemas).toContain("required: ['agent_id', 'endpoint', 'lane', 'dialect', 'soul_prompt', 'tools_allowed']");
+    expect(schemas).toContain("required: ['project_id', 'title', 'objective', 'lane_required']");
+    expect(routeSource).toContain("router.post('/runtime/projects/:projectId/agents'");
+    expect(routeSource).toContain("router.post('/runtime/tasks'");
+
+    for (const readmePath of ['README.md', 'README.zh-CN.md', 'README.zh-TW.md']) {
+      const readme = read(readmePath);
+      expect(readme).toContain('/api/v1/runtime/projects/nexus-dispatch/agents');
+      expect(readme).toContain('"soul_prompt"');
+      expect(readme).toContain('"tools_allowed"');
+      expect(readme).toContain('/api/v1/runtime/tasks');
+      expect(readme).toContain('"project_id": "nexus-dispatch"');
+      expect(readme).toContain('"lane_required": "DEV"');
+      expect(readme).toContain('Jest');
+      expect(readme).not.toContain('max_concurrency');
+      expect(readme).not.toContain('Vitest');
+    }
+  });
 });
