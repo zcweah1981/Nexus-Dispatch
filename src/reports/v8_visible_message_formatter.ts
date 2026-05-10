@@ -1,13 +1,18 @@
+export type V8VisibleLanguage = 'zh-CN' | 'en-US';
+
 export interface V8VisibleMessageInput {
   message_type: string;
   summary?: string | null;
   payload_json?: unknown;
+  visible_language?: V8VisibleLanguage;
+  locale?: V8VisibleLanguage;
 }
 
 type JsonObject = Record<string, unknown>;
 
-const FORBIDDEN_RUNTIME_KEY_RE = /\b(project_id|task_id|dispatch_id|run_id|trace_id|worker_run_id|payload_json|original_task_id|review_task_id|reporter_task_id)\b/gi;
-const FORBIDDEN_RUNTIME_VALUE_RE = /\b(?:task|run|dispatch|trace|worker)-[A-Za-z0-9_.:-]+\b/g;
+const FORBIDDEN_RUNTIME_KEY_RE = /\b(project_id|task_id|task_group_id|group_id|dispatch_id|run_id|trace_id|worker_run_id|payload_json|original_task_id|review_task_id|reporter_task_id)\b/gi;
+const FORBIDDEN_RUNTIME_VALUE_RE = /\b(?:task|run|dispatch|trace|worker|tg)-[A-Za-z0-9_.:-]+\b/g;
+const RAW_PROOF_RE = /raw\s+proof/gi;
 const SENSITIVE_LABEL_VALUE_RE = /\b(?:authorization|api[_-]?key|token|secret|chat[_-]?id|bot[_-]?token)\b\s*[:=：]\s*\S+/gi;
 const BEARER_VALUE_RE = /\bBearer\s+[A-Za-z0-9._~+\/-]{8,}/gi;
 const COMMON_SECRET_VALUE_RE = /\b(?:sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9_]{12,}|xox[baprs]-[A-Za-z0-9-]{12,}|\d{6,}:[A-Za-z0-9_-]{20,}|-100\d{8,})\b/g;
@@ -81,6 +86,7 @@ function sanitizeVisibleText(text: string): string {
     .replace(BEARER_VALUE_RE, '[redacted]')
     .replace(COMMON_SECRET_VALUE_RE, '[redacted]')
     .replace(SENSITIVE_VALUE_RE, '[redacted]')
+    .replace(RAW_PROOF_RE, 'system proof')
     .replace(FORBIDDEN_RUNTIME_KEY_RE, '[hidden]')
     .replace(FORBIDDEN_RUNTIME_VALUE_RE, '[hidden]')
     .replace(RAW_BRACE_RE, '')
@@ -90,13 +96,21 @@ function sanitizeVisibleText(text: string): string {
     .join('\n');
 }
 
-function formatDispatch(payload: JsonObject, summary?: string | null): string {
+function formatDispatch(payload: JsonObject, summary?: string | null, language: V8VisibleLanguage = 'zh-CN'): string {
   const task = nestedObject(payload, 'task');
-  const title = clip(firstString(task.title, payload.title, summary), '新任务');
+  const title = clip(firstString(task.title, payload.title, summary), language === 'en-US' ? 'New task' : '新任务');
   const owner = agentLabel(firstString(payload.agent_id, nestedObject(payload, 'agent').agent_id));
-  const acceptance = firstString(task.acceptance_mode, payload.acceptance_mode) === 'pm_audit'
-    ? 'PM 审核后确认'
-    : 'PM 审核后确认';
+  const acceptance = 'PM 审核后确认';
+  if (language === 'en-US') {
+    return sanitizeVisibleText([
+      '[Task accepted]',
+      `Task: ${title}`,
+      `Owner: ${owner}`,
+      'Acceptance: PM review required',
+      'Next: executor agent works and returns structured proof',
+      'Proof stored in system',
+    ].join('\n'));
+  }
   return sanitizeVisibleText([
     '【接单】',
     `任务：${title}`,
@@ -107,10 +121,22 @@ function formatDispatch(payload: JsonObject, summary?: string | null): string {
   ].join('\n'));
 }
 
-function formatResult(payload: JsonObject, summary?: string | null): string {
+function formatResult(payload: JsonObject, summary?: string | null, language: V8VisibleLanguage = 'zh-CN'): string {
   const fields = parseSummary(summary);
   const task = nestedObject(payload, 'task');
-  const title = clip(firstString(task.title, payload.title), '当前任务');
+  const title = clip(firstString(task.title, payload.title), language === 'en-US' ? 'Current task' : '当前任务');
+  if (language === 'en-US') {
+    return sanitizeVisibleText([
+      '[Report]',
+      `Task: ${title}`,
+      `Result: ${clip(fields.Result ?? fields['结果'] ?? firstString(payload.result, summary), 'Reported')}`,
+      `Description: ${clip(fields.Description ?? fields.Summary ?? fields['说明'] ?? fields['摘要'] ?? firstString(payload.description), 'See system proof')}`,
+      `Validation: ${clip(fields.Validation ?? fields['验证'] ?? firstString(payload.validation), 'Proof stored in system')}`,
+      'Risk: no new blocker observed',
+      'Next: wait for PM/Reviewer review',
+      'Proof stored in system',
+    ].join('\n'));
+  }
   return sanitizeVisibleText([
     '【回报】',
     `任务：${title}`,
@@ -123,8 +149,19 @@ function formatResult(payload: JsonObject, summary?: string | null): string {
   ].join('\n'));
 }
 
-function formatReview(payload: JsonObject, summary?: string | null): string {
+function formatReview(payload: JsonObject, summary?: string | null, language: V8VisibleLanguage = 'zh-CN'): string {
   const fields = parseSummary(summary);
+  if (language === 'en-US') {
+    return sanitizeVisibleText([
+      '[Review]',
+      `Reviewer: ${agentLabel(firstString(payload.reviewer, payload.reviewer_agent_id))}`,
+      `Verdict: ${verdictLabel(payload, fields) === '审核通过' ? 'approved' : verdictLabel(payload, fields) === '审核不通过' ? 'changes requested' : 'pending review'}`,
+      `Reason: ${clip(fields.Reason ?? fields['原因'] ?? fields['不通过原因'] ?? firstString(payload.reason), 'See system proof')}`,
+      `Rework: ${clip(fields.Rework ?? fields['返工'] ?? fields['返工动作'] ?? firstString(payload.rework), 'Follow review instructions')}`,
+      `Next: ${clip(fields.Next ?? fields['下一步'] ?? firstString(payload.next_step), 'Wait for responsible owner')}`,
+      'Proof stored in system',
+    ].join('\n'));
+  }
   return sanitizeVisibleText([
     '【审核】',
     `审核：${agentLabel(firstString(payload.reviewer, payload.reviewer_agent_id))}`,
@@ -136,12 +173,51 @@ function formatReview(payload: JsonObject, summary?: string | null): string {
   ].join('\n'));
 }
 
+function numberField(value: unknown, fallback: number): number {
+  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
+}
+
+function formatGroupSummary(payload: JsonObject, summary?: string | null, language: V8VisibleLanguage = 'zh-CN'): string {
+  const total = numberField(payload.total, 0);
+  const completed = numberField(payload.completed, total);
+  const failed = numberField(payload.failed, 0);
+  const groupTitle = clip(firstString(payload.group_title, payload.name, summary), language === 'en-US' ? 'Current group' : '当前任务组');
+  if (language === 'en-US') {
+    return sanitizeVisibleText([
+      '[Group closeout]',
+      `Group: ${groupTitle}`,
+      `Progress: ${completed}/${total || completed} completed`,
+      `Result: ${failed > 0 ? `${failed} failed, review required` : 'all tracked tasks completed'}`,
+      'Next: continue with the next ready group',
+      'Proof stored in system',
+    ].join('\n'));
+  }
+  return sanitizeVisibleText([
+    '【组总结】',
+    `组：${groupTitle}`,
+    `进度：${completed}/${total || completed} 已完成`,
+    `结果：${failed > 0 ? `${failed} 个任务需处理` : '已完成本组可追踪任务'}`,
+    '下一步：继续处理下一组就绪任务',
+    'Proof 已存系统',
+  ].join('\n'));
+}
+
 export function formatV8VisibleMessage(input: V8VisibleMessageInput): string {
   const payload = asObject(input.payload_json);
-  if (input.message_type === 'agent_dispatch') return formatDispatch(payload, input.summary);
-  if (input.message_type === 'agent_result') return formatResult(payload, input.summary);
+  const language = input.visible_language ?? input.locale ?? 'zh-CN';
+  if (input.message_type === 'agent_dispatch') return formatDispatch(payload, input.summary, language);
+  if (input.message_type === 'agent_result') return formatResult(payload, input.summary, language);
   if (input.message_type === 'review_result' || input.message_type === 'review_accepted' || input.message_type === 'pm_acceptance') {
-    return formatReview(payload, input.summary);
+    return formatReview(payload, input.summary, language);
+  }
+  if (input.message_type === 'group_summary' || input.message_type === 'group_closeout') return formatGroupSummary(payload, input.summary, language);
+  if (language === 'en-US') {
+    return sanitizeVisibleText([
+      '[Notice]',
+      `Type: ${input.message_type}`,
+      `Description: ${clip(input.summary ?? undefined, 'See system proof')}`,
+      'Proof stored in system',
+    ].join('\n'));
   }
   return sanitizeVisibleText([
     '【通知】',

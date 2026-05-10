@@ -16,6 +16,7 @@ import axios, { AxiosInstance } from 'axios';
 import { AdapterFactory } from '../adapters';
 import { FreezerEngine } from '../engine/freezer';
 import { PrismaDAL } from '../db/prisma_dal';
+import { formatV8VisibleMessage, V8VisibleLanguage } from '../reports/v8_visible_message_formatter';
 
 // ─── 配置类型 ────────────────────────────────────────────
 
@@ -304,6 +305,19 @@ class Daemon {
    *   2. config.defaultNotification （全局默认）
    *   3. 无配置则静默跳过
    */
+  private async getProjectVisibleLanguage(): Promise<V8VisibleLanguage> {
+    try {
+      const res = await this.apiClient.get(
+        `/runtime/projects/${encodeURIComponent(this.config.projectId)}/settings/visible-language`,
+      );
+      const language = res.data?.visible_language;
+      return language === 'en-US' ? 'en-US' : 'zh-CN';
+    } catch (error: any) {
+      console.error(`[Notification] Failed to read project visible language: ${error.message}`);
+      return 'zh-CN';
+    }
+  }
+
   private async sendDispatchNotification(agent: any, task: any): Promise<void> {
     const agentId = agent.agent_id;
     const notifConfig =
@@ -314,13 +328,16 @@ class Daemon {
       return;
     }
 
-    const message = [
-      '📋 任务已派发已接单',
-      `📌 任务: ${task.title}`,
-      `👤 Agent: ${agentId}`,
-      `🆔 Task ID: ${task.id}`,
-      `⏰ 时间: ${new Date().toISOString()}`,
-    ].join('\n');
+    const visibleLanguage = await this.getProjectVisibleLanguage();
+    const message = formatV8VisibleMessage({
+      message_type: 'agent_dispatch',
+      visible_language: visibleLanguage,
+      summary: task.title,
+      payload_json: {
+        task: { title: task.title },
+        agent_id: agentId,
+      },
+    });
 
     try {
       if (this.config.notificationFn) {

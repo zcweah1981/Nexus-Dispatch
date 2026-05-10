@@ -10,6 +10,8 @@ import {
   ProjectCronjobCreateInput,
   ProjectCronjobRepository,
   ProjectRepository,
+  ProjectSettingsRepository,
+  V8_SUPPORTED_VISIBLE_LANGUAGES,
   ReportCreateInput,
   ReportRepository,
   RunCreateInput,
@@ -49,6 +51,7 @@ export class V8RuntimeApiService {
   private readonly runs: RunRepository;
   private readonly artifacts: ArtifactRepository;
   private readonly cronjobs: ProjectCronjobRepository;
+  private readonly settings: ProjectSettingsRepository;
   private readonly reviewPolicies: ReviewPolicyRepository;
   private readonly reports: ReportRepository;
 
@@ -60,8 +63,9 @@ export class V8RuntimeApiService {
     this.runs = new RunRepository(prisma);
     this.artifacts = new ArtifactRepository(prisma);
     this.cronjobs = new ProjectCronjobRepository(prisma);
+    this.settings = new ProjectSettingsRepository(prisma);
     this.reviewPolicies = new ReviewPolicyRepository(prisma);
-    this.reports = new ReportRepository(prisma);
+    this.reports = new ReportRepository(prisma, this.settings);
   }
 
   async createProject(input: ProjectCreateInput) {
@@ -86,6 +90,32 @@ export class V8RuntimeApiService {
       return await this.agents.registerAgent(projectId, input);
     } catch (error) {
       return asNotFound(error, `Agent could not be registered in project ${projectId}`);
+    }
+  }
+
+  async getVisibleLanguage(projectId: string) {
+    try {
+      const visible_language = await this.settings.getVisibleLanguage(projectId);
+      return { project_id: projectId, visible_language, supported: V8_SUPPORTED_VISIBLE_LANGUAGES };
+    } catch (error: any) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/^Invalid visible language/.test(message)) {
+        throw new V8RuntimeApiError(400, 'BAD_REQUEST', message, { project_id: projectId, supported: V8_SUPPORTED_VISIBLE_LANGUAGES });
+      }
+      return asNotFound(error, `Project '${projectId}' not found`);
+    }
+  }
+
+  async updateVisibleLanguage(projectId: string, visibleLanguage: string) {
+    try {
+      const setting = await this.settings.updateVisibleLanguage(projectId, visibleLanguage);
+      return { ...setting, supported: V8_SUPPORTED_VISIBLE_LANGUAGES };
+    } catch (error: any) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (/^Invalid visible language/.test(message)) {
+        throw new V8RuntimeApiError(400, 'BAD_REQUEST', message, { project_id: projectId, supported: V8_SUPPORTED_VISIBLE_LANGUAGES });
+      }
+      return asNotFound(error, `Project '${projectId}' not found`);
     }
   }
 

@@ -322,6 +322,94 @@ describe('V8-R2 Runtime API route boundary', () => {
     expect(persistedTaskB?.status).toBe('created');
   });
 
+  test('visible message language settings are persisted per project and used by report creation without cross-project leakage', async () => {
+    const projectA = await request(app)
+      .post('/api/v1/runtime/projects')
+      .set('Authorization', 'Bearer test-token')
+      .send({ name: 'visible-lang-a' })
+      .expect(201);
+    const projectB = await request(app)
+      .post('/api/v1/runtime/projects')
+      .set('Authorization', 'Bearer test-token')
+      .send({ name: 'visible-lang-b' })
+      .expect(201);
+
+    await request(app)
+      .get(`/api/v1/runtime/projects/${projectA.body.project.id}/settings/visible-language`)
+      .set('Authorization', 'Bearer test-token')
+      .expect(200)
+      .expect((res) => expect(res.body).toMatchObject({ project_id: projectA.body.project.id, visible_language: 'zh-CN' }));
+
+    await request(app)
+      .patch(`/api/v1/runtime/projects/${projectA.body.project.id}/settings/visible-language`)
+      .set('Authorization', 'Bearer test-token')
+      .send({ visible_language: 'en-US' })
+      .expect(200)
+      .expect((res) => expect(res.body).toMatchObject({ project_id: projectA.body.project.id, visible_language: 'en-US' }));
+
+    await request(app)
+      .patch(`/api/v1/runtime/projects/${projectB.body.project.id}/settings/visible-language`)
+      .set('Authorization', 'Bearer test-token')
+      .send({ visible_language: 'zh-CN' })
+      .expect(200);
+
+    await request(app)
+      .patch(`/api/v1/runtime/projects/${projectA.body.project.id}/settings/visible-language`)
+      .set('Authorization', 'Bearer test-token')
+      .send({ visible_language: 'fr-FR' })
+      .expect(422)
+      .expect((res) => {
+        expect(res.body).toMatchObject({ code: 'VALIDATION_ERROR' });
+        expect(JSON.stringify(res.body.details)).toContain('zh-CN');
+        expect(JSON.stringify(res.body.details)).toContain('en-US');
+      });
+
+    const taskA = await request(app)
+      .post('/api/v1/runtime/tasks')
+      .set('Authorization', 'Bearer test-token')
+      .send({ project_id: projectA.body.project.id, title: 'Language A task', objective: 'English visible report', lane_required: 'DEV' })
+      .expect(201);
+    const taskB = await request(app)
+      .post('/api/v1/runtime/tasks')
+      .set('Authorization', 'Bearer test-token')
+      .send({ project_id: projectB.body.project.id, title: 'Language B task', objective: 'Chinese visible report', lane_required: 'DEV' })
+      .expect(201);
+
+    await request(app)
+      .post('/api/v1/runtime/reports')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        project_id: projectA.body.project.id,
+        task_id: taskA.body.task.id,
+        message_type: 'agent_result',
+        payload_json: { task: { title: 'Language A task' }, result: 'done' },
+        summary: 'Result: done\nDescription: English path\nValidation: npm test passed',
+      })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.report.summary).toContain('[Report]');
+        expect(res.body.report.summary).toContain('Task: Language A task');
+        expect(res.body.report.summary).not.toContain('【回报】');
+      });
+
+    await request(app)
+      .post('/api/v1/runtime/reports')
+      .set('Authorization', 'Bearer test-token')
+      .send({
+        project_id: projectB.body.project.id,
+        task_id: taskB.body.task.id,
+        message_type: 'agent_result',
+        payload_json: { task: { title: 'Language B task' }, result: '完成' },
+        summary: '结果：完成\n说明：中文路径\n验证：npm test passed',
+      })
+      .expect(201)
+      .expect((res) => {
+        expect(res.body.report.summary).toContain('【回报】');
+        expect(res.body.report.summary).toContain('任务：Language B task');
+        expect(res.body.report.summary).not.toContain('[Report]');
+      });
+  });
+
   test('Runtime route source stays thin: no direct SQL, no legacy DAL, and state changes go through services/controllers', () => {
     const routesSource = fs.readFileSync(path.join(repoRoot, 'src/api/routes.ts'), 'utf8');
     const serviceSource = fs.readFileSync(path.join(repoRoot, 'src/services/v8_runtime_api_service.ts'), 'utf8');

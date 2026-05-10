@@ -195,6 +195,16 @@ export const runtimeProjectCreateSchema = {
   additionalProperties: false,
 } as const;
 
+export const runtimeVisibleLanguageUpdateSchema = {
+  $id: 'runtimeVisibleLanguageUpdate',
+  type: 'object',
+  required: ['visible_language'],
+  properties: {
+    visible_language: { type: 'string', enum: ['zh-CN', 'en-US'] },
+  },
+  additionalProperties: false,
+} as const;
+
 export const runtimeAgentRegisterSchema = {
   $id: 'runtimeAgentRegister',
   type: 'object',

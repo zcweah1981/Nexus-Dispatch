@@ -22,7 +22,7 @@ There is no `install.sh` one-click script or Swagger UI page. Use the smoke-test
 All `/api/v1/*` requests require:
 
 ```bash
--H "Authorization: Bearer $API_AUTH_TOKEN"
+  -H "Authorization: Bearer <api-credential>" \
 ```
 
 Key endpoints:
@@ -87,7 +87,7 @@ curl -i "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/tasks/pending?p
 
 # Authenticated request: should return JSON (empty tasks is normal)
 curl -sS \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer <api-credential>" \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/tasks/pending?project_id=${NEXUS_PROJECT_ID:-nexus-dispatch}"
 
 # SSE stream: should show connected/ping (timeout prevents blocking the terminal)
@@ -136,7 +136,7 @@ Workers are external execution nodes — they are **not** bundled inside the Nex
 ```bash
 curl -sS -X POST \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/projects/${NEXUS_PROJECT_ID:-nexus-dispatch}/agents" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer <api-credential>" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "long-coder-1",
@@ -208,7 +208,7 @@ sudo systemctl start nexus-dispatch-daemon.service
 
 ## 8. Telegram Delivery Configuration
 
-Nexus follows a strict notification boundary: **each dispatched agent sends via its own bot** — the Daemon and PM never send on an agent's behalf. The Daemon reads `AGENT_NOTIFICATIONS` and looks up the bot config per `agent_id`. The example below uses environment variable placeholders:
+Nexus follows a strict notification boundary: **each dispatched agent sends via its own bot** — the Daemon and PM never send on an agent's behalf. The Daemon reads `AGENT_NOTIFICATIONS` and looks up only the bot/chat config per `agent_id`; visible language is not configured on the agent. Telegram body language is resolved from the project Runtime setting `visible_language` (`zh-CN` default, `en-US` supported). The example below uses environment variable placeholders:
 
 ```bash
 AGENT_NOTIFICATIONS='{
@@ -217,12 +217,22 @@ AGENT_NOTIFICATIONS='{
 }'
 ```
 
+Set project visible language through the Runtime API after the project exists:
+
+```bash
+curl -sS -X PATCH "$PM_API_URL/runtime/projects/nexus-dispatch/settings/visible-language" \
+  -H "Authorization: Bearer <api-credential>" \
+  -H "Content-Type: application/json" \
+  -d '{"visible_language":"en-US"}'
+```
+
 Production guidelines:
 
-1. Inject real values via systemd `EnvironmentFile`, Docker secrets, or environment variables.
+1. Inject real bot/chat values via systemd `EnvironmentFile`, Docker secrets, or environment variables.
 2. Never print real tokens or chat IDs in README, compose files, Git-tracked files, or logs.
-3. Each agent uses its own bot token. If no config exists for an agent, the Daemon silently skips the visible notification — Runtime proof and report still land in the database.
-4. Visible messages are human-readable only. Full task/run/dispatch/trace identifiers stay in DB artifacts and reports — never in group chat text.
+3. `AGENT_NOTIFICATIONS` stays credential-only (`bot_token`, `chat_id`). Do not add language fields there; language is project-scoped via `visible_language`.
+4. Each agent uses its own bot token. If no config exists for an agent, the Daemon silently skips the visible notification — Runtime proof and report still land in the database.
+5. Visible messages are human-readable only. Full task/run/dispatch/trace identifiers stay in DB artifacts and reports — never in group chat text.
 
 ---
 
@@ -242,7 +252,7 @@ Recommended pause flow:
 # Pause the registry (does NOT kill the external process — adapter converges on next read)
 curl -sS -X PATCH \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/projects/${NEXUS_PROJECT_ID:-nexus-dispatch}/cronjobs/<cronjob_id>/status" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer <api-credential>" \
   -H "Content-Type: application/json" \
   -d '{"status":"paused"}'
 ```

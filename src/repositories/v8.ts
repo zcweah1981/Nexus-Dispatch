@@ -1,6 +1,6 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { assertV8TransitionAllowed, isV8State } from '../fsm/v8_state_matrix';
-import { formatV8VisibleMessage } from '../reports/v8_visible_message_formatter';
+import { formatV8VisibleMessage, V8VisibleLanguage } from '../reports/v8_visible_message_formatter';
 
 export type JsonInput = Prisma.InputJsonValue | Record<string, unknown> | unknown[];
 
@@ -414,6 +414,15 @@ const V8_WATCHDOG_PATROL_DEFAULT_TEMPLATE = [
   '请执行 watchdog/patrol 只读巡检并返回：summary、findings、risk、next_input。',
 ].join('\n');
 
+export const V8_SUPPORTED_VISIBLE_LANGUAGES: V8VisibleLanguage[] = ['zh-CN', 'en-US'];
+export const V8_DEFAULT_VISIBLE_LANGUAGE: V8VisibleLanguage = 'zh-CN';
+const V8_VISIBLE_LANGUAGE_SETTING_KEY = 'visible_language';
+
+export function assertV8VisibleLanguage(value: string): V8VisibleLanguage {
+  if ((V8_SUPPORTED_VISIBLE_LANGUAGES as string[]).includes(value)) return value as V8VisibleLanguage;
+  throw new Error(`Invalid visible language: ${value}. Supported values: ${V8_SUPPORTED_VISIBLE_LANGUAGES.join(', ')}`);
+}
+
 function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
   if (!value) return {};
   try {
@@ -600,8 +609,38 @@ export class ArtifactRepository {
   }
 }
 
-export class ReportRepository {
+export class ProjectSettingsRepository {
   constructor(private readonly prisma: PrismaClient) {}
+
+  private async getProject(projectId: string) {
+    return this.prisma.project.findFirst({ where: { id: projectId }, select: { id: true, channel_config: true } });
+  }
+
+  async getVisibleLanguage(projectId: string): Promise<V8VisibleLanguage> {
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error(`Project ${projectId} not found`);
+    const config = parseJsonObject(project.channel_config);
+    const raw = config[V8_VISIBLE_LANGUAGE_SETTING_KEY];
+    if (typeof raw !== 'string') return V8_DEFAULT_VISIBLE_LANGUAGE;
+    return assertV8VisibleLanguage(raw);
+  }
+
+  async updateVisibleLanguage(projectId: string, visibleLanguage: string): Promise<{ project_id: string; visible_language: V8VisibleLanguage }> {
+    const language = assertV8VisibleLanguage(visibleLanguage);
+    const project = await this.getProject(projectId);
+    if (!project) throw new Error(`Project ${projectId} not found`);
+    const config = parseJsonObject(project.channel_config);
+    const nextConfig = { ...config, [V8_VISIBLE_LANGUAGE_SETTING_KEY]: language };
+    await this.prisma.project.update({
+      where: { id: projectId },
+      data: { channel_config: stringifyJson(nextConfig) },
+    });
+    return { project_id: projectId, visible_language: language };
+  }
+}
+
+export class ReportRepository {
+  constructor(private readonly prisma: PrismaClient, private readonly settings = new ProjectSettingsRepository(prisma)) {}
 
   async create(projectId: string, input: ReportCreateInput) {
     const initialStatus = input.status ?? 'pending';
@@ -629,6 +668,8 @@ export class ReportRepository {
       if (existing) return existing;
     }
 
+    const visibleLanguage = await this.settings.getVisibleLanguage(projectId);
+
     try {
       return await this.prisma.report.create({
         data: {
@@ -642,6 +683,7 @@ export class ReportRepository {
             message_type: input.message_type,
             summary: input.visible_message ?? input.summary,
             payload_json: input.payload_json,
+            visible_language: visibleLanguage,
           }),
           payload_json: stringifyJson(input.payload_json) ?? '{}',
           delivery_json: stringifyJson(input.delivery_json),

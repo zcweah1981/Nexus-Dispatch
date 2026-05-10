@@ -58,7 +58,7 @@ Freeze a project blueprint, thaw phases, and advance through milestones — all 
 
 ### Telegram Delivery (Per-Agent Bot)
 
-Each agent sends its own notifications via its own bot token. The Daemon looks up `AGENT_NOTIFICATIONS` and dispatches to the right bot. No centralized bot. No leaked credentials in group chat.
+Each agent sends its own notifications via its own bot token. The Daemon looks up `AGENT_NOTIFICATIONS` only for `bot_token` and `chat_id`; the visible body language comes from the project `visible_language` Runtime setting (`zh-CN` default, `en-US` supported). No centralized bot. No leaked credentials in group chat.
 
 ### WebUI Observability
 

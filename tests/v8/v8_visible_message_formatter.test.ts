@@ -155,6 +155,100 @@ describe('V8-R6 visible message formatter', () => {
     }
   }, 30000);
 
+  test('localizes dispatch/report/review/group visible messages to en-US without leaking runtime keys', () => {
+    const forbidden = /project_id|task_id|run_id|trace_id|worker_run_id|payload_json|raw proof|secret|nexus-dispatch|task-r12-visible|run-r12-visible|trace-r12-visible|worker-r12-visible|\{|\}/i;
+
+    const dispatch = formatV8VisibleMessage({
+      message_type: 'agent_dispatch',
+      locale: 'en-US',
+      summary: 'Dispatched task-r12-visible with trace_id trace-r12-visible',
+      payload_json: {
+        project_id: 'nexus-dispatch',
+        task_id: 'task-r12-visible',
+        run_id: 'run-r12-visible',
+        trace_id: 'trace-r12-visible',
+        worker_run_id: 'worker-r12-visible',
+        payload_json: { raw: true },
+        agent_id: 'long-coder-1',
+        task: { title: 'R12 visible language formatter' },
+      },
+    });
+    expect(dispatch).toContain('Task accepted');
+    expect(dispatch).toContain('Task: R12 visible language formatter');
+    expect(dispatch).toContain('Owner: Long');
+    expect(dispatch).toContain('Proof stored in system');
+    expect(dispatch).not.toMatch(forbidden);
+
+    const report = formatV8VisibleMessage({
+      message_type: 'agent_result',
+      locale: 'en-US',
+      summary: 'Result: completed\nDescription: formatter localized\nValidation: npm test -> passed with task_id task-r12-visible',
+      payload_json: { task: { title: 'R12 visible language formatter' }, secret: 'fake_secret_r12' },
+    });
+    expect(report).toContain('Report');
+    expect(report).toContain('Result: completed');
+    expect(report).toContain('Description: formatter localized');
+    expect(report).toContain('Validation: npm test -> passed with [hidden] [hidden]');
+    expect(report).toContain('Proof stored in system');
+    expect(report).not.toMatch(forbidden);
+
+    const review = formatV8VisibleMessage({
+      message_type: 'review_result',
+      locale: 'en-US',
+      summary: 'Verdict: approved\nReason: meets acceptance\nNext: close group',
+      payload_json: { reviewer: 'shun-designer-1', verdict: 'pass', trace_id: 'trace-r12-visible' },
+    });
+    expect(review).toContain('Review');
+    expect(review).toContain('Reviewer: Shun');
+    expect(review).toContain('Verdict: approved');
+    expect(review).toContain('Proof stored in system');
+    expect(review).not.toMatch(forbidden);
+
+    const group = formatV8VisibleMessage({
+      message_type: 'group_summary',
+      locale: 'en-US',
+      summary: 'Group r12-group closeout: 3/3 completed with raw proof',
+      payload_json: {
+        project_id: 'nexus-dispatch',
+        task_group_id: 'tg-r12-visible',
+        group_id: 'r12-group',
+        group_title: 'R12 visible language',
+        total: 3,
+        completed: 3,
+        failed: 0,
+        payload_json: { raw: 'proof' },
+      },
+    });
+    expect(group).toContain('Group closeout');
+    expect(group).toContain('Group: R12 visible language');
+    expect(group).toContain('Progress: 3/3 completed');
+    expect(group).toContain('Proof stored in system');
+    expect(group).not.toMatch(forbidden);
+  });
+
+  test('keeps zh-CN visible copy as the default locale for dispatch/report/review/group summaries', () => {
+    const group = formatV8VisibleMessage({
+      message_type: 'group_summary',
+      summary: 'Group r12-group closeout: 2/2 completed',
+      payload_json: {
+        project_id: 'nexus-dispatch',
+        task_group_id: 'tg-r12-visible',
+        group_title: 'R12 可见语言',
+        total: 2,
+        completed: 2,
+      },
+    });
+
+    expect(formatV8VisibleMessage({ message_type: 'agent_dispatch', payload_json: { task: { title: '中文默认派单' } } })).toContain('【接单】');
+    expect(formatV8VisibleMessage({ message_type: 'agent_result', payload_json: { task: { title: '中文默认回报' } } })).toContain('【回报】');
+    expect(formatV8VisibleMessage({ message_type: 'review_result', payload_json: { reviewer: 'shun-designer-1' } })).toContain('【审核】');
+    expect(group).toContain('【组总结】');
+    expect(group).toContain('组：R12 可见语言');
+    expect(group).toContain('进度：2/2 已完成');
+    expect(group).toContain('Proof 已存系统');
+    expect(group).not.toMatch(/project_id|task_group_id|group_id|payload_json|\{|\}/);
+  });
+
   test('Runtime report creation stores formatted visible summary and keeps raw payload only in payload_json', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nexus-v8-r6-visible-'));
     const dbPath = path.join(tmpDir, 'visible.db');

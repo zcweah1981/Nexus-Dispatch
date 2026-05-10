@@ -27,6 +27,7 @@ import {
   runtimeArtifactCreateSchema,
   runtimeCronjobBindSchema,
   runtimeCronjobStatusUpdateSchema,
+  runtimeVisibleLanguageUpdateSchema,
   runtimeReportCreateSchema,
   runtimeReportStatusUpdateSchema,
   taskTransitionSchema,
@@ -86,6 +87,31 @@ export function createApiRouter(authToken: string = 'valid-token', prismaDal?: P
       return res.status(200).json({ project });
     } catch (error: any) {
       return sendRuntimeError(res, error, 'Failed to get runtime project');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/settings/visible-language', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    try {
+      const setting = await service.getVisibleLanguage(projectId);
+      return res.status(200).json(setting);
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime project visible language');
+    }
+  });
+
+  router.patch('/runtime/projects/:projectId/settings/visible-language', validateBody('runtimeVisibleLanguageUpdate', runtimeVisibleLanguageUpdateSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    try {
+      const setting = await service.updateVisibleLanguage(projectId, req.body.visible_language);
+      stateEmitter.emit('state_change', { type: 'project_visible_language_updated', data: { project_id: projectId, visible_language: setting.visible_language } });
+      return res.status(200).json(setting);
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to update runtime project visible language');
     }
   });
 
