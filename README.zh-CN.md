@@ -1,64 +1,95 @@
 <div align="center">
-  <img src="./docs/assets/nexus-hero.png" alt="Nexus Dispatch" width="720" />
+  <img src="./docs/assets/nexus-hero.png" alt="Nexus Dispatch — 多 Agent 团队的任务控制中心" width="720" />
   <h1>Nexus Dispatch</h1>
-  <p><strong>一个大脑。多双手。零信任。</strong></p>
+  <p><strong>统一调度 · 证据闭环 · 结果可验证</strong></p>
   <p>
     <a href="./README.md">English</a> ·
+    <a href="./README.zh-CN.md">简体中文</a> ·
     <a href="./README.zh-TW.md">繁體中文</a>
   </p>
 </div>
 
----
-
-> **多 Agent 编排，终于可控了。**
->
-> Nexus Dispatch 是你的 Agent 集群缺失的那个控制平面——一个单一 PM 大脑来派单、追踪、验收跨任意数量异构 AI Agent 的工作。底层基于 API-only、状态机驱动的运行时，永不信任 Worker 自证完成。
-
 <p align="center">
-  <img src="https://img.shields.io/badge/Runtime-API_only-blue" alt="API-only Runtime" />
-  <img src="https://img.shields.io/badge/Storage-SQLite_SSoT-green" alt="SQLite SSoT" />
-  <img src="https://img.shields.io/badge/Agents-Multi--Agent_Control_Plane-purple" alt="Multi-Agent Control Plane" />
-  <img src="https://img.shields.io/badge/Security-Zero_Trust_Proof-red" alt="Zero-Trust Proof" />
-  <img src="https://img.shields.io/badge/Brain-PM_Daemon-orange" alt="PM Daemon" />
-  <img src="https://img.shields.io/badge/Interface-Telegram_·_WebUI-teal" alt="Telegram / WebUI" />
-  <img src="https://img.shields.io/badge/Scheduler-Cron_Adapter-yellow" alt="Cron Adapter" />
+  <img src="https://img.shields.io/badge/Brain-PM_Brain-orange" alt="PM Brain" />
+  <img src="https://img.shields.io/badge/Tasks-Long--running_Unattended-9cf" alt="Long-running Tasks" />
+  <img src="https://img.shields.io/badge/Fleet-Multi--Agent-purple" alt="Multi-Agent Fleet" />
+  <img src="https://img.shields.io/badge/Delivery-Proof--based-brightgreen" alt="Proof-based Delivery" />
+  <img src="https://img.shields.io/badge/Visibility-Telegram_+_WebUI-teal" alt="Telegram + WebUI" />
+  <img src="https://img.shields.io/badge/Runtime-API_Control_Plane-blue" alt="API Control Plane" />
+  <img src="https://img.shields.io/badge/Workflow-Unattended-success" alt="Unattended Workflow" />
+  <img src="https://img.shields.io/badge/Deploy-Docker_·_systemd-informational" alt="Docker/systemd Ready" />
   <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
 </p>
 
 ---
 
-## 问题是什么？
-
-你有 5 个、10 个甚至 50 个 AI Agent，但没有一个大脑在协调。任务丢失、重复、或者"完成了"却没有证据。聊天频道淹没在噪音里。没人能回答一个基本问题：*到底上线了什么？验证过了吗？*
-
-Nexus Dispatch 解决这个问题。它不是又一个聊天机器人框架或 Agent 工具箱——它是**任务控制中心**，坐在所有 Agent 上方，确保正确的工作到达正确的 Agent，被执行、被验证、被追踪。每次如此。
+> **一个 PM 大脑中枢，协调你的整个 AI Agent 编队——派单、追踪、验证，全程无人值守。**
+>
+> Nexus Dispatch 是多 Agent 团队一直缺少的任务控制中心。它用一个 PM 大脑中枢来协调异构 AI Agent，基于 API-first、状态机驱动的运行时，配合证据闭环的交付门控——确保正确的工作到达正确的 Agent，带着可验证的证据完成，全程保持有序推进。不依赖聊天上下文，不丢失任务状态。
 
 ---
 
-## 适合谁？
+## ✨ 为什么选择 Nexus Dispatch？
 
-| 角色 | 用法 |
+你有 Codex、Claude、Hermes、OpenClaw 或自建 Worker——但没有人统一指挥。任务在缝隙中丢失，完成状态未经确认，聊天频道淹没在噪音里。
+
+Nexus Dispatch 给你一个**永不打烊的 PM 大脑中枢**：
+
+| ✅ 你能得到什么 | ⚙️ 实现方式 |
+| --- | --- |
+| 🧠 **统一调度** | PM 大脑中枢评估优先级、解析 DAG 依赖、按泳道路由到最合适的 Agent。 |
+| 🔁 **长任务不断线** | 发射后不管的任务链，即使跨小时或跨天也能持续推进——自动重试、状态自动恢复。 |
+| 🛡️ **证据闭环** | Worker 提交结构化交付物（Git SHA、文件哈希、截图）。证据通过验证门控，才算"已完成"。 |
+| 🤖 **多 Agent 协作** | 按泳道和并发数注册异构 Worker。Daemon 统一派发、统一回收，所有交互走同一 API 边界。 |
+| 📱 **执行过程可追踪** | 每个 Agent 通过自己的 bot 发通知。WebUI 仪表盘实时流式展示任务状态、DAG 进度和交付物画廊。 |
+| 🔌 **单一真相源** | 每次状态流转走 REST。没有共享数据库，没有 SSH 隧道，Agent 无法直连 DB。 |
+| 🐳 **分钟级部署** | 单台 VPS，Docker Compose 或裸机。一个 SQLite 文件。零外部数据库依赖。 |
+
+---
+
+## 🏷️ 产品亮点
+
+```
+🧠 PM 大脑中枢         ·  DAG 优先级派单与依赖解析
+⏳ 长任务不断线         ·  跨小时/跨天的工作流链，无人值守持续推进
+🤖 多 Agent 协作        ·  异构 Worker 按泳道路由，并发控制
+🛡️ 证据闭环            ·  每个完成门控必须提交结构化交付物
+📱 Telegram + WebUI    ·  独立 Agent bot 通知 + 实时 SSE 仪表盘
+🔌 API 控制平面        ·  纯 REST 状态机，Bearer Token 认证，无直连数据库
+🔄 无人值守推进        ·  发射后不管，自动重试，阻塞状态自动恢复
+🐳 Docker/systemd     ·  单台 VPS，一个 SQLite 文件，零外部依赖
+```
+
+---
+
+## 👥 适合谁？
+
+| 角色 | 使用场景 |
 | --- | --- |
 | **AI Agent 团队** | 按泳道路由和并发控制，向编码、设计、内容、审核 Agent 派发任务。 |
-| **技术负责人** | 通过 WebUI + SSE 监控任务全生命周期——从派单到审核到交付物验收。 |
-| **多 Agent 单人开发者** | 运行一个轻量 PM Daemon，让多 Agent 工作流保持诚实，无需从零搭建编排系统。 |
-| **运维 & 平台团队** | 单台 VPS 上用 Docker Compose 或 systemd 部署。SQLite SSoT 意味着无需外部数据库。 |
+| **技术负责人** | 通过 WebUI + SSE 监控任务全生命周期——从派发到审核到交付物验收。 |
+| **多 Agent 个人开发者** | 运行轻量 PM 大脑中枢，让多 Agent 工作流保持有序，无需从零搭建编排系统。 |
+| **运维 & 平台团队** | 单台 VPS 上用 Docker Compose 或 systemd 部署。SQLite 单一真相源，无需外部数据库。 |
 
 ---
 
-## 为什么选择 Nexus Dispatch？
+## 🖼️ 工作流全景
 
-| 你能得到什么 | 怎么做到的 |
-| --- | --- |
-| **不再丢任务** | PM Daemon 评估优先级、通过 DAG 解析依赖、按策略派发到正确的 Agent。 |
-| **不再有假完成** | Worker 通过 Runtime API 提交 proof、run 和 artifact。状态机说"完成"才算完成。 |
-| **不共享数据库** | 每次状态流转走 REST。无 SSH 隧道，无 Agent 直连 DB。 |
-| **不泄露凭据** | Telegram 通知由每个 Agent 自己的 bot 发出，Daemon 不代发。追踪 ID 留在数据库，不进聊天。 |
-| **不复杂部署** | 单台 VPS，Docker Compose 或裸机。一个 SQLite 文件。零外部依赖。 |
+*任务如何从创建到交付验证，在 Nexus Dispatch 中流转。*
+
+![Nexus Dispatch 使用流程](./docs/assets/nexus-usage-flow.png)
+
+1. **PM 创建任务**，指定泳道、依赖和审核策略。
+2. **PM 大脑中枢派发**到对应的专业 Worker。
+3. **Worker 执行并回传证据**——run、交付物和完成负载通过同一 API 边界回传。
+4. **审核门控裁决**——根据策略和证据质量决定通过或打回。高风险任务需要人工审核；常规任务在机器验证交付物后自动推进。
+5. **Telegram + WebUI 展示结果**——以人类可读的形式呈现，不暴露内部 ID 或敏感信息。
 
 ---
 
-## 架构
+## 🏗️ 架构
+
+*单一大脑中枢、多个哑终端、API-only 数据流。*
 
 ![Nexus Dispatch 架构](./docs/assets/nexus-architecture.png)
 
@@ -80,10 +111,10 @@ Nexus Dispatch 解决这个问题。它不是又一个聊天机器人框架或 A
            │ Tick Loop                        │ 注册
            ▼                                  ▼
 ┌────────────────────┐            ┌───────────────────────┐
-│  PM Daemon         │  派单      │  Worker Agents        │
+│  PM Daemon         │  派发      │  Worker Agents        │
 │  · DAG 解析        │ ────────▶  │  · claim → run        │
-│  · 优先级评估      │  ◀──────── │  · 提交 proof         │
-│  · 审核门控        │  artifact  │  · POST 结果          │
+│  · 优先级评估      │  ◀──────── │  · 提交证据           │
+│  · 审核门控        │  交付物    │  · POST 结果          │
 └────────────────────┘            └───────────────────────┘
            │
            ▼
@@ -97,19 +128,19 @@ Nexus Dispatch 解决这个问题。它不是又一个聊天机器人框架或 A
 
 ---
 
-## 核心能力
+## ⚡ 核心能力
 
 ### 🔄 状态机驱动的任务生命周期
 
-每个任务严格遵循有限状态机：`created → dispatched → running → completion_pending → review_pending → completed`，并包含 retry、blocked、dead_letter 和 cancelled 分支。没有捷径，任何 Agent 都不能跳过状态或自行标记"已完成"。
+每个任务严格遵循有限状态机：`created → dispatched → running → completion_pending → review_pending → completed`，并包含 retry、blocked、dead_letter 和 cancelled 分支。没有捷径——任何 Agent 都不能跳过状态或自行标记完成。
 
 ### 🔗 DAG 依赖解析
 
-任务声明依赖关系。Daemon 的 DAG 引擎执行拓扑排序并检测环路——循环依赖在派单前就被拦截，而不是挂起后才暴露。
+任务声明依赖关系。PM 大脑中枢的 DAG 引擎执行拓扑排序并检测环路——循环依赖在派发前就被拦截，而不是挂起后才暴露。
 
-### 🛡️ 动态审核门控
+### 🛡️ 动态审核与证据门控
 
-任务携带 `review_policy`（`group_only`、`pm_audit` 等）。高风险任务需要审核人 proof 后才能解锁下游。常规任务在机器验证 artifact 提交后自动推进。
+任务携带 `review_policy`（`group_only`、`pm_audit` 等）。高风险任务需要审核人确认后才能解锁下游。常规任务在机器验证交付物后自动推进——保持流水线顺畅，不制造瓶颈。
 
 ### 📋 蓝图 & 阶段管理
 
@@ -121,45 +152,15 @@ Nexus Dispatch 解决这个问题。它不是又一个聊天机器人框架或 A
 
 ### 📨 Telegram 通知（每 Agent 独立 Bot）
 
-每个 Agent 用自己的 bot token 发送通知。Daemon 只从 `AGENT_NOTIFICATIONS` 读取 `bot_token` 与 `chat_id`；可见正文语言来自项目级 Runtime setting `visible_language`（默认 `zh-CN`，支持 `en-US`）。无中心化 bot，无凭据泄露到群聊。
+每个 Agent 用自己的 bot token 发送通知。Daemon 只从 `AGENT_NOTIFICATIONS` 读取 `bot_token` 与 `chat_id`；可见正文语言来自项目级 Runtime setting `visible_language`（默认 `zh-CN`，支持 `en-US`）。无中心化 bot，凭据不泄露到群聊。
 
 ### 📊 WebUI 可观测性
 
-轻量仪表盘读取 API 和 SSE 流。查看任务状态、DAG 阶段进度、artifact 画廊和 run 历史——永远不写数据库。
+轻量仪表盘读取 API 和 SSE 流。查看任务状态、DAG 阶段进度、交付物画廊和 run 历史——永远不写数据库。
 
 ---
 
-## 运行时模型
-
-Daemon 运行可配置的 Tick Loop（默认 `TICK_INTERVAL`）。每个 tick：
-
-1. **拉取待办任务** — 查询 `/api/v1/runtime/tasks/pending`，按项目和泳道过滤。
-2. **解析 DAG** — 拓扑排序 + 环路检测。依赖未满足的任务留在队列。
-3. **评估优先级和泳道** — 匹配任务泳道到在线 Agent。遵守每个 Agent 的 `max_concurrency`。
-4. **派发** — POST 到 Worker 注册的 `endpoint`。状态流转到 `dispatched`。
-5. **等待 proof** — Worker 通过 Runtime API 回传 run、report 和 artifact。
-6. **审核门控** — 如果 `review_policy` 要求，创建动态审核任务；否则机器 proof 解锁下游。
-
-```
-created → dispatched → running → completion_pending → review_pending → completed
-                              ↘ retry_ready / blocked / dead_letter / cancelled
-```
-
-### 工作流全景
-
-![Nexus Dispatch 使用流程](./docs/assets/nexus-usage-flow.png)
-
-一次典型的交付路径是严格且全程可见的：
-
-1. **PM 创建任务**，指定泳道、依赖和审核策略。
-2. **Daemon 派发**到对应的专业 Worker。
-3. **Worker 提交 proof** — run、artifact 和完成负载通过同一个 API 边界回传。
-4. **PM / 审核门控**根据策略和 proof 质量决定通过或打回。
-5. **Telegram + WebUI 展示结果**，以人类可读的形式呈现，不暴露内部 ID 或敏感信息。
-
----
-
-## 快速开始
+## 🚀 快速开始
 
 ### 前置条件
 
@@ -181,7 +182,7 @@ curl -i "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dis
 
 # 验证：已认证请求应返回 JSON
 curl -sS \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dispatch"
 ```
 
@@ -208,7 +209,7 @@ npm --prefix src/webui run dev
 ```bash
 curl -sS -X POST \
   "http://localhost:8000/api/v1/runtime/projects/nexus-dispatch/agents" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer YOUR_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "my-worker-1",
@@ -224,12 +225,12 @@ curl -sS -X POST \
 
 ---
 
-## 安全边界
+## 🔐 安全边界
 
 Nexus Dispatch 在凭据和数据周围执行严格边界：
 
 - **仓库不含真实密钥。** README、docker-compose 和 systemd 示例均使用 `$VARIABLE` 占位符。从 `.env.example` 复制后在本地填写。
-- **API-only 数据访问。** SQLite 仅在 API Server 内部可见。任何模块、Worker 或 UI 都不直接访问 DB。
+- **API-only 数据访问。** SQLite 仅在 API Server 内部可见。任何模块、Worker 或 UI 都不直接访问数据库。
 - **每次请求 Bearer Token。** 所有 `/api/v1/*` 端点要求 `Authorization: Bearer <token>`。未认证请求返回 `401`。
 - **每 Agent 独立 Telegram Bot。** 每个 Agent 用自己的 bot token 发送通知。Daemon 从不使用共享 bot 或中心化 token。
 - **聊天不含敏感 ID。** Task、Run、Dispatch 和 Trace ID 留在数据库和 Runtime Proof 中。群聊消息仅为人类可读的摘要。
@@ -237,7 +238,7 @@ Nexus Dispatch 在凭据和数据周围执行严格边界：
 
 ---
 
-## 项目结构
+## 📁 项目结构
 
 ```
 Nexus-Dispatch/
@@ -250,7 +251,9 @@ Nexus-Dispatch/
 ├── tests/             # 单元 + 集成测试 (Vitest)
 ├── scripts/           # health-check.sh，systemd 服务单元
 ├── docs/
-│   ├── install.md     # 完整安装与部署指南
+│   ├── install.md     # 完整安装与部署指南（英文）
+│   ├── install.zh-CN.md  # 简体中文部署导览
+│   ├── install.zh-TW.md  # 繁體中文部署導覽
 │   ├── assets/        # Hero 图和架构图 (SVG + PNG)
 │   └── v8/            # Runtime Proof 文档和 API 契约
 ├── docker-compose.yml
@@ -260,21 +263,22 @@ Nexus-Dispatch/
 
 ---
 
-## 文档导航
+## 📚 文档导航
 
 | 文档 | 说明 |
 | --- | --- |
-| [README.md](./README.md) | 英文产品 README（主文档） |
-| [docs/install.zh-CN.md](./docs/install.zh-CN.md) | 简体中文部署导览：三语素材说明、架构/部署配图、英文主文档导航 |
 | [docs/install.md](./docs/install.md) | 英文完整部署指南：Docker Compose、systemd、冒烟测试、故障排查 |
+| [docs/install.zh-CN.md](./docs/install.zh-CN.md) | 简体中文部署导览：三语素材说明、架构/部署配图、导航 |
+| [docs/install.zh-TW.md](./docs/install.zh-TW.md) | 繁體中文部署導覽：三語素材說明、架構/部署配圖、導航 |
+| [docs/TRILINGUAL-STRATEGY.md](./docs/TRILINGUAL-STRATEGY.md) | 三语文档策略、命名规范与本地化规则 |
 | [docs/v8/](./docs/v8/) | Runtime Proof 文档、API 契约、Schema 规范 |
 | [docs/assets/](./docs/assets/) | 产品视觉资产：Hero、架构图与使用说明图 |
-| [docs/assets/guide/](./docs/assets/guide/) | 使用说明配图：部署流程、Hermes/OpenClaw 接入、proof 渲染图 |
-| [README.zh-TW.md](./README.zh-TW.md) | 繁體中文入口（佔位，翻譯規劃中） |
+| [docs/assets/guide/](./docs/assets/guide/) | 使用说明配图：部署流程、Hermes/OpenClaw 接入、Proof 渲染图 |
+| [README.zh-TW.md](./README.zh-TW.md) | 繁體中文版 README |
 
 ---
 
-## 验证命令
+## ✅ 验证命令
 
 ```bash
 npm run build                                    # 编译 TypeScript
@@ -282,12 +286,13 @@ npx prisma validate                              # 校验 Schema
 npm test -- --runInBand                          # 运行测试套件
 npm --prefix src/webui run build                 # 构建 WebUI
 git diff --check                                 # 检查空白问题
+npm run validate:api-deploy -- --skip-health     # Prisma + V8 部署检查
 ./scripts/health-check.sh --quick || true        # 部署健康检查（开发环境 warning 正常）
 ```
 
 ---
 
-## 许可证
+## 📄 许可证
 
 本项目基于 [MIT 许可证](./LICENSE) 开源。
 
