@@ -1,0 +1,156 @@
+{
+  "hero_baseline": "docs/assets/nexus-hero-user-source.jpg",
+  "backup_dir": "/tmp/nexus-v8-r21-readme-image-backup",
+  "files": {
+    "nexus-product-flow-en.svg": {
+      "sha256": "1f235e61fafda077c2d49db91f9eaa1737009aab0414d4be4a4dcd208d0d648b",
+      "bytes": 14548,
+      "dimensions": null,
+      "mode": null,
+      "path": "docs/assets/nexus-product-flow-en.svg"
+    },
+    "nexus-product-flow-en.png": {
+      "sha256": "b0900681084b0d7729eb9939573d9281a74749e74eb937d326d06be213315d9e",
+      "bytes": 308805,
+      "dimensions": [
+        1600,
+        900
+      ],
+      "mode": "RGBA",
+      "path": "docs/assets/nexus-product-flow-en.png"
+    },
+    "nexus-product-flow-zh-CN.svg": {
+      "sha256": "f243d38d1628d7bb39f3b872fa1173e2f59ef32cb240784224e82b440bcec118",
+      "bytes": 13887,
+      "dimensions": null,
+      "mode": null,
+      "path": "docs/assets/nexus-product-flow-zh-CN.svg"
+    },
+    "nexus-product-flow-zh-CN.png": {
+      "sha256": "44a1f0164938d4308181797e97b6789118d44e762a6748e942c65f0f88f72cf1",
+      "bytes": 224469,
+      "dimensions": [
+        1600,
+        900
+      ],
+      "mode": "RGBA",
+      "path": "docs/assets/nexus-product-flow-zh-CN.png"
+    },
+    "nexus-product-flow-zh-TW.svg": {
+      "sha256": "6749daf9f490a633e13a1c762191ab228b7ba53a38de5a05792c501ccffe2369",
+      "bytes": 13890,
+      "dimensions": null,
+      "mode": null,
+      "path": "docs/assets/nexus-product-flow-zh-TW.svg"
+    },
+    "nexus-product-flow-zh-TW.png": {
+      "sha256": "3ecc66d575cc3a99eb61080df425d427eb50308467f0faea86eaac5a69f03df1",
+      "bytes": 224469,
+      "dimensions": [
+        1600,
+        900
+      ],
+      "mode": "RGBA",
+      "path": "docs/assets/nexus-product-flow-zh-TW.png"
+    },
+    "nexus-product-flow.svg": {
+      "sha256": "1f235e61fafda077c2d49db91f9eaa1737009aab0414d4be4a4dcd208d0d648b",
+      "bytes": 14548,
+      "dimensions": null,
+      "mode": null,
+      "path": "docs/assets/nexus-product-flow.svg"
+    },
+    "nexus-product-flow.png": {
+      "sha256": "b0900681084b0d7729eb9939573d9281a74749e74eb937d326d06be213315d9e",
+      "bytes": 308805,
+      "dimensions": [
+        1600,
+        900
+      ],
+      "mode": "RGBA",
+      "path": "docs/assets/nexus-product-flow.png"
+    },
+    "nexus-architecture-en.svg": {
+      "sha256": "b74a33010d75347dc759ba80fd4f9eb2dc4ffb2aea1a4b816ba420ba9576ce82",
+      "bytes": 12579,
+      "dimensions": null,
+      "mode": null,
+      "path": "docs/assets/nexus-architecture-en.svg"
+    },
+    "nexus-architecture-en.png": {
+      "sha256": "543ecdd958b91b4609441dda0d41300b321b420d183fa3e8555a589b4db66f44",
+      "bytes": 300914,
+      "dimensions": [
+        1600,
+        1000
+      ],
+      "mode": "RGBA",
+      "path": "docs/assets/nexus-architecture-en.png"
+    },
+    "nexus-architecture-zh-CN.svg": {
+      "sha256": "ba62a9983d7a7434661aa60b6d18a975648a48aed1a90489a8defb923690f15c",
+      "bytes": 12521,
+      "dimensions": null,
+      "mode": null,
+      "path": "docs/assets/nexus-architecture-zh-CN.svg"
+    },
+    "nexus-architecture-zh-CN.png": {
+      "sha256": "5e9f0fb353f518a3058473c08d89c9e388b5046a783c8f8419cbfeb4f1e553f0",
+      "bytes": 251687,
+      "dimensions": [
+        1600,
+        1000
+      ],
+      "mode": "RGBA",
+      "path": "docs/assets/nexus-architecture-zh-CN.png"
+    },
+    "nexus-architecture-zh-TW.svg": {
+      "sha256": "a35ef4beeb0c8c94a22b2b2163b6135d8810ac2ad8e2e685d6e4dbfda7a53eb5",
+      "bytes": 12521,
+      "dimensions": null,
+      "mode": null,
+      "path": "docs/assets/nexus-architecture-zh-TW.svg"
+    },
+    "nexus-architecture-zh-TW.png": {
+      "sha256": "5e9f0fb353f518a3058473c08d89c9e388b5046a783c8f8419cbfeb4f1e553f0",
+      "bytes": 251687,
+      "dimensions": [
+        1600,
+        1000
+      ],
+      "mode": "RGBA",
+      "path": "docs/assets/nexus-architecture-zh-TW.png"
+    },
+    "nexus-architecture.svg": {
+      "sha256": "b74a33010d75347dc759ba80fd4f9eb2dc4ffb2aea1a4b816ba420ba9576ce82",
+      "bytes": 12579,
+      "dimensions": null,
+      "mode": null,
+      "path": "docs/assets/nexus-architecture.svg"
+    },
+    "nexus-architecture.png": {
+      "sha256": "543ecdd958b91b4609441dda0d41300b321b420d183fa3e8555a589b4db66f44",
+      "bytes": 300914,
+      "dimensions": [
+        1600,
+        1000
+      ],
+      "mode": "RGBA",
+      "path": "docs/assets/nexus-architecture.png"
+    },
+    "r21-two-below-hero-comparison-proof.png": {
+      "sha256": "39c902763671f98e12e8e1425c76aa16c30e38f42b35f88f7b50cf53be04d10d",
+      "bytes": 770132,
+      "dimensions": [
+        1800,
+        1320
+      ],
+      "mode": "RGB",
+      "path": "docs/assets/r21-two-below-hero-comparison-proof.png"
+    }
+  },
+  "locale_pair_diff_bbox": {
+    "flow_zhCN_vs_zhTW": null,
+    "architecture_zhCN_vs_zhTW": null
+  }
+}

@@ -1,6 +1,9 @@
 <div align="center">
-  <img src="./docs/assets/nexus-logo-user-source.jpg" alt="Nexus Dispatch" width="140" />
-  <h1>Nexus Dispatch</h1>
+  <h1>
+    <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" height="52" />
+    Nexus Dispatch
+  </h1>
+  <img src="./docs/assets/nexus-banner-user-source.jpg" alt="Nexus Dispatch — PM-driven control plane for long-running multi-agent work" width="720" />
   <p><strong>PM-driven control plane for long-running multi-agent work.</strong></p>
   <p>
     <a href="./README.md">English</a> ·
@@ -17,9 +20,6 @@
   <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
 </p>
 
-<div align="center">
-  <img src="./docs/assets/nexus-hero-user-source.jpg" alt="Nexus Dispatch — PM-driven control plane for long-running multi-agent work" width="720" />
-</div>
 
 ---
 
