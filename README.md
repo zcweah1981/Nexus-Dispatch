@@ -46,6 +46,10 @@
 
 Nexus Dispatch does three things — and does them well:
 
+<p align="center">
+  <img src="./docs/assets/hero.png" alt="Nexus Dispatch — dispatch, track, and verify multi-agent work" width="100%" />
+</p>
+
 | | What | How |
 | --- | --- | --- |
 | 📤 **Dispatch** | Route the right task to the right agent at the right time. | DAG-based dependency resolution, lane routing, priority evaluation. No manual assignment. |

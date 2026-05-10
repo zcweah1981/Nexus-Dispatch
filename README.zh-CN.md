@@ -46,6 +46,10 @@
 
 Nexus Dispatch 只做三件事——并且做好：
 
+<p align="center">
+  <img src="./docs/assets/hero.png" alt="Nexus Dispatch — 派发、追踪并验证多 Agent 工作" width="100%" />
+</p>
+
 | | 做什么 | 怎么做 |
 | --- | --- | --- |
 | 📤 **派发** | 在正确的时间把正确的任务派给正确的 Agent。 | DAG 依赖解析、泳道路由、优先级评估。无需人工指派。 |

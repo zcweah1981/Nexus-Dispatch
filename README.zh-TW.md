@@ -46,6 +46,10 @@
 
 Nexus Dispatch 只做三件事——並且做好：
 
+<p align="center">
+  <img src="./docs/assets/hero.png" alt="Nexus Dispatch — 派發、追蹤並驗證多 Agent 工作" width="100%" />
+</p>
+
 | | 做什麼 | 怎麼做 |
 | --- | --- | --- |
 | 📤 **派發** | 在正確的時間把正確的任務派給正確的 Agent。 | DAG 依賴解析、泳道路由、優先級評估。無需人工指派。 |
