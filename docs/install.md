@@ -1,12 +1,21 @@
 # Installation & Deployment Guide
 
+<p align="center">
+  <b>English</b> · <a href="./install.zh-CN.md">简体中文</a> · <a href="./install.zh-TW.md">繁體中文</a>
+</p>
+
 > R13_API_SERVER_DEPLOY_GUIDE_CONTRACT
 >
 > This guide is the API Server deployment runbook. For the product overview, see [README.md](../README.md).
+>
+> Visual assets under `docs/assets/guide/` are shared across the three language versions. If an image contains product/UI text, prefer the localized caption and section notes in each language doc instead of relying on the embedded English text alone.
 
 ![Guide cover](./assets/guide/nexus-guide-cover.jpg)
 
 ## Visual Map
+
+> Shared asset note: screenshots/diagrams are reused across English / 简体中文 / 繁體中文 docs. When embedded labels remain in English, the surrounding caption and explanatory text define the localized reading context.
+
 
 ### Deployment flow
 

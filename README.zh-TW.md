@@ -4,7 +4,7 @@
   <p><strong>一個大腦。多雙手。零信任。</strong></p>
   <p>
     <a href="./README.md">English</a> ·
-    <a href="./README.zh-CN.md">简体中文</a>
+    <a href="./README.zh-CN.md">簡體中文</a>
   </p>
 </div>
 
@@ -49,7 +49,14 @@ Nexus Dispatch 是一個多 Agent 編排控制平面——用單一 PM 大腦來
 
 ## 快速開始
 
-請參閱 [English README](./README.md) 的 Quick Start 章節，或查看 [安裝部署指南](./docs/install.md)。
+請參閱 [English README](./README.md) 的 Quick Start 章節，或查看 [安裝部署指南](./docs/install.zh-TW.md)。
+
+## 文件導航
+
+- [English README](./README.md)
+- [簡體中文 README](./README.zh-CN.md)
+- [繁體中文安裝導覽](./docs/install.zh-TW.md)
+- [English Install Guide](./docs/install.md)
 
 ## 授權
 

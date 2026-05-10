@@ -264,7 +264,10 @@ Nexus-Dispatch/
 
 | Document | Description |
 | --- | --- |
-| [docs/install.md](./docs/install.md) | Full deployment guide: Docker Compose, systemd, smoke tests, troubleshooting |
+| [docs/install.md](./docs/install.md) | Full English deployment guide: Docker Compose, systemd, smoke tests, troubleshooting |
+| [docs/install.zh-CN.md](./docs/install.zh-CN.md) | Simplified Chinese install guide: shared assets, localized captions, and navigation |
+| [docs/install.zh-TW.md](./docs/install.zh-TW.md) | Traditional Chinese install guide: shared assets, localized captions, and navigation |
+| [docs/TRILINGUAL-STRATEGY.md](./docs/TRILINGUAL-STRATEGY.md) | Trilingual docs map, naming convention, and localization rules |
 | [docs/v8/](./docs/v8/) | Runtime proof documents, API contracts, and schema specs |
 | [docs/assets/](./docs/assets/) | Product visuals: hero, architecture, and guide diagrams |
 | [docs/assets/guide/](./docs/assets/guide/) | Guide visuals: deployment flow, Hermes/OpenClaw integration, proof render |

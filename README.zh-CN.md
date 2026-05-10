@@ -220,7 +220,7 @@ curl -sS -X POST \
   }'
 ```
 
-👉 **完整部署指南、systemd 配置和故障排查：** [docs/install.md](./docs/install.md)
+👉 **完整部署指南、systemd 配置和故障排查：** [docs/install.zh-CN.md](./docs/install.zh-CN.md)
 
 ---
 
@@ -265,7 +265,8 @@ Nexus-Dispatch/
 | 文档 | 说明 |
 | --- | --- |
 | [README.md](./README.md) | 英文产品 README（主文档） |
-| [docs/install.md](./docs/install.md) | 完整部署指南：Docker Compose、systemd、冒烟测试、故障排查 |
+| [docs/install.zh-CN.md](./docs/install.zh-CN.md) | 简体中文部署导览：三语素材说明、架构/部署配图、英文主文档导航 |
+| [docs/install.md](./docs/install.md) | 英文完整部署指南：Docker Compose、systemd、冒烟测试、故障排查 |
 | [docs/v8/](./docs/v8/) | Runtime Proof 文档、API 契约、Schema 规范 |
 | [docs/assets/](./docs/assets/) | 产品视觉资产：Hero、架构图与使用说明图 |
 | [docs/assets/guide/](./docs/assets/guide/) | 使用说明配图：部署流程、Hermes/OpenClaw 接入、proof 渲染图 |
