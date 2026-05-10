@@ -50,6 +50,9 @@ payload.json
 runtime-proof*.json
 *.proof.json
 
+# Cliproxy API response artifacts (base64 image data, not source)
+docs/assets/cliproxy-test/*.json
+
 # Logs / temp
 logs/
 *.log
