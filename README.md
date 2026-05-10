@@ -1,10 +1,10 @@
 <div align="center">
   <h1>
-    <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" height="52" />
+    <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" height="56" />
     Nexus Dispatch
   </h1>
   <img src="./docs/assets/nexus-banner-user-source.jpg" alt="Nexus Dispatch — PM-driven control plane for long-running multi-agent work" width="720" />
-  <p><strong>PM-driven control plane for long-running multi-agent work.</strong></p>
+  <p><strong>PM-driven multi-agent control plane.</strong></p>
   <p>
     <a href="./README.md">English</a> ·
     <a href="./README.zh-CN.md">简体中文</a> ·
