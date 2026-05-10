@@ -66,7 +66,7 @@
 所有 `/api/v1/*` 请求必须携带：
 
 ```bash
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
 ```
 
 核心端点：
@@ -146,11 +146,11 @@ curl -i "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/tasks/pending?p
 
 # 鉴权请求：应返回 JSON（空任务列表为正常）
 curl -sS \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/tasks/pending?project_id=${NEXUS_PROJECT_ID:-nexus-dispatch}"
 
 # SSE 流：应显示 connected/ping（timeout 防止终端阻塞）
-timeout 5 curl -N -H "Authorization: Bearer ***" "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/events/stream"
+timeout 5 curl -N -H "Authorization: Bearer NEXUS_BEARER" "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/events/stream"
 
 # WebUI
 curl -I "http://localhost:${NEXUS_WEBUI_PORT:-3030}/"
@@ -202,17 +202,17 @@ curl -I "http://localhost:${NEXUS_WEBUI_PORT:-3030}/"
    export NEXUS_PROJECT_ID="nexus-dispatch"
 
    curl -sS -X POST "http://localhost:8000/api/v1/runtime/projects" \
-     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+     -H "Authorization: Bearer NEXUS_BEARER" \
      -H "Content-Type: application/json" \
      -d '{"id":"nexus-dispatch","name":"nexus-dispatch"}'
 
    curl -sS -X POST "http://localhost:8000/api/v1/runtime/projects/nexus-dispatch/agents" \
-     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+     -H "Authorization: Bearer NEXUS_BEARER" \
      -H "Content-Type: application/json" \
      -d '{"agent_id":"long-coder-1","endpoint":"http://worker-host:8647/v1/runs","lane":"DEV","dialect":"openclaw","max_concurrency":1,"status":"online"}'
 
    curl -sS -X POST "http://localhost:8000/api/v1/runtime/tasks" \
-     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+     -H "Authorization: Bearer NEXUS_BEARER" \
      -H "Content-Type: application/json" \
      -d '{"project_id":"nexus-dispatch","id":"first-task","title":"First task","objective":"Verify the API Server lifecycle","lane_required":"DEV","acceptance_mode":"group_only","acceptance_criteria":["task reaches completed through Runtime API transitions"]}'
    ```
@@ -225,7 +225,7 @@ curl -I "http://localhost:${NEXUS_WEBUI_PORT:-3030}/"
    ```bash
    for event in dispatch start submit_completion request_review review_pass; do
      curl -sS -X POST "http://localhost:8000/api/v1/runtime/tasks/transition" \
-       -H "Authorization: Bearer $API_AUTH_TOKEN" \
+       -H "Authorization: Bearer NEXUS_BEARER" \
        -H "Content-Type: application/json" \
        -d "{\"project_id\":\"nexus-dispatch\",\"task_id\":\"first-task\",\"event\":\"${event}\",\"proof\":{\"source\":\"install-guide-smoke\"}}"
    done
@@ -237,7 +237,7 @@ curl -I "http://localhost:${NEXUS_WEBUI_PORT:-3030}/"
 
    ```bash
    curl -sS "http://localhost:8000/api/v1/runtime/tasks/first-task?project_id=nexus-dispatch" \
-     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+     -H "Authorization: Bearer NEXUS_BEARER" \
    # 预期：task.status == "completed"
    ```
 
@@ -288,7 +288,7 @@ Worker 是外部执行节点——**不**包含在 Nexus 控制面容器内。�
 ```bash
 curl -sS -X POST \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/projects/${NEXUS_PROJECT_ID:-nexus-dispatch}/agents" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "long-coder-1",
@@ -391,7 +391,7 @@ AGENT_NOTIFICATIONS='{
 
 ```bash
 curl -sS -X PATCH "$PM_API_URL/runtime/projects/nexus-dispatch/settings/visible-language" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
   -H "Content-Type: application/json" \
   -d '{"visible_language":"en-US"}'
 ```
@@ -422,7 +422,7 @@ curl -sS -X PATCH "$PM_API_URL/runtime/projects/nexus-dispatch/settings/visible-
 # 暂停注册（不会终止外部进程——适配器在下次读取时收敛）
 curl -sS -X PATCH \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/projects/${NEXUS_PROJECT_ID:-nexus-dispatch}/cronjobs/<cronjob_id>/status" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
   -H "Content-Type: application/json" \
   -d '{"status":"paused"}'
 ```

@@ -1,5 +1,7 @@
 <div align="center">
-  <img src="./docs/assets/nexus-hero.png" alt="Nexus Dispatch — 多 Agent 團隊的任務控制中心" width="720" />
+  <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" width="140" />
+  <br />
+  <img src="./docs/assets/nexus-hero.png" alt="Nexus Dispatch — 多 Agent 團隊的任務控制中心：一個 PM 大腦中樞統一排程、追蹤和驗證" width="720" />
   <h1>Nexus Dispatch</h1>
   <p><strong>統一排程 · 證據閉環 · 結果可驗證</strong></p>
   <p>
@@ -75,9 +77,21 @@ Nexus Dispatch 給你一個**永不打烊的 PM 大腦中樞**：
 
 ## 🖼️ 工作流全景
 
-*任務如何從建立到交付驗證，在 Nexus Dispatch 中流轉。*
+*任務如何從建立到交付驗證，在 Nexus Dispatch 中流轉。PM 大腦中樞統一排程多 Agent，每個完成門控都要求可驗證的結構化證據。*
 
-![Nexus Dispatch 使用流程](./docs/assets/nexus-usage-flow.png)
+![Nexus Dispatch 工作流全景 — 長任務不斷線、多 Agent 排程、證據閉環、全程可觀察](./docs/assets/nexus-product-flow.png)
+
+> 💡 **核心優勢**：任務發射後無人值守運行。PM 大腦中樞自動解析 DAG 依賴、按泳道派發到最合適的 Agent，並在每個完成門控驗證結構化交付物——不需要人工盯盤。
+
+**圖中模組說明：**
+
+| 模組 | 作用 |
+| --- | --- |
+| 🧠 PM 大腦中樞 | 評估優先級、解析 DAG 依賴、決定派發時機與目標 Agent |
+| 📋 任務池 | 所有待辦任務按狀態機管理，等待排程或審核 |
+| 🤖 Worker Agent | 接收派單、執行任務、回傳結構化證據 |
+| 🛡️ 審核門控 | 根據策略自動驗證交付物，或提交人工審核 |
+| 📱 通知層 | 每個 Agent 用自己的 bot 發送通知，不洩露內部 ID |
 
 1. **PM 建立任務**，指定泳道、依賴和審核策略。
 2. **PM 大腦中樞派發**到對應的專業 Worker。
@@ -89,9 +103,21 @@ Nexus Dispatch 給你一個**永不打烊的 PM 大腦中樞**：
 
 ## 🏗️ 架構
 
-*單一大腦中樞、多個啞終端、API-only 資料流。*
+*單一大腦中樞、多個啞終端、API-only 資料流。透過 Telegram 和 WebUI 實現全程可觀察。*
 
-![Nexus Dispatch 架構](./docs/assets/nexus-architecture.png)
+![Nexus Dispatch 架構 — PM 大腦中樞統一排程、多 Agent 協作、API 控制平面、證據閉環](./docs/assets/nexus-architecture.png)
+
+> 💡 **核心優勢**：一個大腦，多雙手。PM 大腦中樞掌握所有排程邏輯；Worker 是無狀態執行器。每次狀態流轉都經過 REST API，形成完整稽核鏈——全程可觀察、全程可驗證。
+
+**架構分層說明：**
+
+| 層級 | 元件 | 職責 |
+| --- | --- | --- |
+| 🧑 人類層 | Telegram（每 Agent 獨立 bot）+ WebUI（唯讀 SSE） | 通知與可觀測性，不暴露內部 ID |
+| 🔌 API 控制平面 | Runtime API (Express :8000) | 所有狀態流轉的唯一入口，Bearer Token 認證 |
+| 🧠 排程引擎 | PM Daemon（DAG 解析、優先級評估、審核門控） | 核心決策大腦，永不休息 |
+| 🤖 執行終端 | Worker Agents（claim → run → 提交證據） | 啞執行，不自主決策 |
+| 💾 資料層 | SQLite + Prisma DAL（僅 API 行程內部可見） | 單一真相源，外部無存取途徑 |
 
 ```
 ┌─────────────────────────────────────────────────────────┐
@@ -125,6 +151,14 @@ Nexus Dispatch 給你一個**永不打烊的 PM 大腦中樞**：
 ```
 
 **核心不變量：** SQLite 僅在 API Server 行程內可見。Worker、Daemon 和 WebUI 絕不直接操作資料庫——全部透過 Runtime API 存取。
+
+---
+
+## 🧼 真實使用截圖
+
+*真實產品使用場景——Telegram 派單訊息 + WebUI 進度面板。聯絡人、執行時期 ID 和憑證已脫敏。每個 Agent 透過自己的 bot 報告，不洩露內部 ID。*
+
+![Nexus Dispatch 真實使用截圖 — Telegram 通知與 WebUI 面板，全程可觀察](./docs/assets/nexus-sanitized-usage-screenshot.png)
 
 ---
 
@@ -182,7 +216,7 @@ curl -i "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dis
 
 # 驗證：已認證請求應回傳 JSON
 curl -sS \
-  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
   "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dispatch"
 ```
 
@@ -209,7 +243,7 @@ npm --prefix src/webui run dev
 ```bash
 curl -sS -X POST \
   "http://localhost:8000/api/v1/runtime/projects/nexus-dispatch/agents" \
-  -H "Authorization: Bearer YOUR_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "my-worker-1",
@@ -231,7 +265,7 @@ Nexus Dispatch 在憑證和資料周圍執行嚴格邊界：
 
 - **儲存庫不含真實密鑰。** README、docker-compose 和 systemd 範例均使用 `$VARIABLE` 佔位符。從 `.env.example` 複製後在本地填寫。
 - **API-only 資料存取。** SQLite 僅在 API Server 內部可見。任何模組、Worker 或 UI 都不直接存取資料庫。
-- **每次請求 Bearer Token。** 所有 `/api/v1/*` 端點要求 `Authorization: Bearer <token>`。未認證請求回傳 `401`。
+- **每次請求 Bearer Token。** 所有 `/api/v1/*` 端點都需要 `Authorization: Bearer NEXUS_BEARER`；未認證請求會返回 `401`。
 - **每 Agent 獨立 Telegram Bot。** 每個 Agent 用自己的 bot token 發送通知。Daemon 從不使用共享 bot 或中心化 token。
 - **聊天不含敏感 ID。** Task、Run、Dispatch 和 Trace ID 留在資料庫和 Runtime Proof 中。群聊訊息僅為人類可讀的摘要。
 - **公網端點必須 TLS。** API 暴露到 localhost 以外時，必須透過反向代理（Nginx、Caddy、Cloudflare Tunnel）強制 HTTPS。
@@ -272,8 +306,9 @@ Nexus-Dispatch/
 | [docs/install.zh-TW.md](./docs/install.zh-TW.md) | 繁體中文部署導覽：三語素材說明、架構/部署配圖、導航 |
 | [docs/TRILINGUAL-STRATEGY.md](./docs/TRILINGUAL-STRATEGY.md) | 三語文件策略、命名規範與在地化規則 |
 | [docs/v8/](./docs/v8/) | Runtime Proof 文件、API 契約、Schema 規範 |
-| [docs/assets/](./docs/assets/) | 產品視覺資產：Hero、架構圖與使用說明圖 |
+| [docs/assets/](./docs/assets/) | 產品視覺資產：logo、Hero、工作流全景、架構圖、使用截圖 |
 | [docs/assets/guide/](./docs/assets/guide/) | 使用說明配圖：部署流程、Hermes/OpenClaw 接入、Proof 渲染圖 |
+| [README.md](./README.md) | English README |
 | [README.zh-CN.md](./README.zh-CN.md) | 简体中文版 README |
 
 ---

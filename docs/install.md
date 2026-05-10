@@ -59,7 +59,7 @@ There is no `install.sh` one-click script or Swagger UI page. Use the smoke-test
 All `/api/v1/*` requests require:
 
 ```bash
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
 ```
 
 Key endpoints:
@@ -124,11 +124,11 @@ curl -i "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/tasks/pending?p
 
 # Authenticated request: should return JSON (empty tasks is normal)
 curl -sS \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/tasks/pending?project_id=${NEXUS_PROJECT_ID:-nexus-dispatch}"
 
 # SSE stream: should show connected/ping (timeout prevents blocking the terminal)
-timeout 5 curl -N -H "Authorization: Bearer ***" "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/events/stream"
+timeout 5 curl -N -H "Authorization: Bearer NEXUS_BEARER" "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/events/stream"
 
 # WebUI
 curl -I "http://localhost:${NEXUS_WEBUI_PORT:-3030}/"
@@ -162,17 +162,17 @@ The shortest end-to-end path from a clean clone to the first task reaching `comp
    export NEXUS_PROJECT_ID="nexus-dispatch"
 
    curl -sS -X POST "http://localhost:8000/api/v1/runtime/projects" \
-     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+     -H "Authorization: Bearer NEXUS_BEARER" \
      -H "Content-Type: application/json" \
      -d '{"id":"nexus-dispatch","name":"nexus-dispatch"}'
 
    curl -sS -X POST "http://localhost:8000/api/v1/runtime/projects/nexus-dispatch/agents" \
-     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+     -H "Authorization: Bearer NEXUS_BEARER" \
      -H "Content-Type: application/json" \
      -d '{"agent_id":"long-coder-1","endpoint":"http://worker-host:8647/v1/runs","lane":"DEV","dialect":"openclaw","max_concurrency":1,"status":"online"}'
 
    curl -sS -X POST "http://localhost:8000/api/v1/runtime/tasks" \
-     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+     -H "Authorization: Bearer NEXUS_BEARER" \
      -H "Content-Type: application/json" \
      -d '{"project_id":"nexus-dispatch","id":"first-task","title":"First task","objective":"Verify the API Server lifecycle","lane_required":"DEV","acceptance_mode":"group_only","acceptance_criteria":["task reaches completed through Runtime API transitions"]}'
    ```
@@ -180,7 +180,7 @@ The shortest end-to-end path from a clean clone to the first task reaching `comp
    ```bash
    for event in dispatch start submit_completion request_review review_pass; do
      curl -sS -X POST "http://localhost:8000/api/v1/runtime/tasks/transition" \
-       -H "Authorization: Bearer $API_AUTH_TOKEN" \
+       -H "Authorization: Bearer NEXUS_BEARER" \
        -H "Content-Type: application/json" \
        -d "{\"project_id\":\"nexus-dispatch\",\"task_id\":\"first-task\",\"event\":\"${event}\",\"proof\":{\"source\":\"install-guide-smoke\"}}"
    done
@@ -188,7 +188,7 @@ The shortest end-to-end path from a clean clone to the first task reaching `comp
 5. **Verify the first task**
    ```bash
    curl -sS "http://localhost:8000/api/v1/runtime/tasks/first-task?project_id=nexus-dispatch" \
-     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+     -H "Authorization: Bearer NEXUS_BEARER" \
    # Expected: task.status == "completed"
    ```
 
@@ -230,7 +230,7 @@ Workers are external execution nodes — they are **not** bundled inside the Nex
 ```bash
 curl -sS -X POST \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/projects/${NEXUS_PROJECT_ID:-nexus-dispatch}/agents" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "long-coder-1",
@@ -315,7 +315,7 @@ Set project visible language through the Runtime API after the project exists:
 
 ```bash
 curl -sS -X PATCH "$PM_API_URL/runtime/projects/nexus-dispatch/settings/visible-language" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
   -H "Content-Type: application/json" \
   -d '{"visible_language":"en-US"}'
 ```
@@ -346,7 +346,7 @@ Recommended pause flow:
 # Pause the registry (does NOT kill the external process — adapter converges on next read)
 curl -sS -X PATCH \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/projects/${NEXUS_PROJECT_ID:-nexus-dispatch}/cronjobs/<cronjob_id>/status" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer NEXUS_BEARER" \
   -H "Content-Type: application/json" \
   -d '{"status":"paused"}'
 ```
