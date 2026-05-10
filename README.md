@@ -22,6 +22,7 @@
   <img src="https://img.shields.io/badge/Brain-PM_Daemon-orange" alt="PM Daemon" />
   <img src="https://img.shields.io/badge/Interface-Telegram_·_WebUI-teal" alt="Telegram / WebUI" />
   <img src="https://img.shields.io/badge/Scheduler-Cron_Adapter-yellow" alt="Cron Adapter" />
+  <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
 </p>
 
 ---
@@ -288,4 +289,6 @@ npm run validate:api-deploy -- --skip-health     # Prisma + focused V8 deploy ch
 
 ## License
 
-Private repository. All rights reserved.
+This project is licensed under the [MIT License](./LICENSE).
+
+Copyright (c) 2026 Nexus Dispatch contributors

@@ -18,6 +18,7 @@
   <img src="https://img.shields.io/badge/Brain-PM_Daemon-orange" alt="PM Daemon" />
   <img src="https://img.shields.io/badge/Interface-Telegram_·_WebUI-teal" alt="Telegram / WebUI" />
   <img src="https://img.shields.io/badge/Scheduler-Cron_Adapter-yellow" alt="Cron Adapter" />
+  <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
 </p>
 
 ---
@@ -52,4 +53,6 @@ Nexus Dispatch 是一個多 Agent 編排控制平面——用單一 PM 大腦來
 
 ## 授權
 
-私有倉庫。保留所有權利。
+本專案基於 [MIT 授權條款](./LICENSE) 開源。
+
+Copyright (c) 2026 Nexus Dispatch contributors

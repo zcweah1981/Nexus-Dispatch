@@ -22,6 +22,7 @@
   <img src="https://img.shields.io/badge/Brain-PM_Daemon-orange" alt="PM Daemon" />
   <img src="https://img.shields.io/badge/Interface-Telegram_·_WebUI-teal" alt="Telegram / WebUI" />
   <img src="https://img.shields.io/badge/Scheduler-Cron_Adapter-yellow" alt="Cron Adapter" />
+  <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
 </p>
 
 ---
@@ -287,4 +288,6 @@ git diff --check                                 # 检查空白问题
 
 ## 许可证
 
-私有仓库。保留所有权利。
+本项目基于 [MIT 许可证](./LICENSE) 开源。
+
+Copyright (c) 2026 Nexus Dispatch contributors
