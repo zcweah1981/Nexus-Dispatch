@@ -9,7 +9,8 @@
     "dev": "ts-node src/index.ts",
     "test": "jest",
     "daemon": "ts-node src/daemon/main.ts",
-    "db:init:test": "node scripts/init-test-db.js"
+    "db:init:test": "node scripts/init-test-db.js",
+    "validate:api-deploy": "node scripts/validate-api-deploy.js"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

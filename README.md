@@ -1,6 +1,6 @@
 # Nexus Dispatch
 
-[**中文文档**](./README.zh-CN.md)
+[**简体中文**](./README.zh-CN.md) | [**繁體中文**](./README.zh-TW.md)
 
 ![Nexus Dispatch hero](./docs/assets/nexus-hero.png)
 
@@ -38,7 +38,7 @@ Nexus Dispatch solves this by being **the control plane your agents don't have**
 
 ### State-Machine Task Lifecycle
 
-Every task follows a strict finite-state machine: `created → dispatched → claimed → running → completed | failed | dead-lettered`. No shortcuts. No agent can skip states or self-mark "done."
+Every task follows a strict finite-state machine: `created → dispatched → running → completion_pending → review_pending → completed` with retry, blocked, dead-letter, and cancelled branches. No shortcuts. No agent can skip states or self-mark "done."
 
 ### DAG-Based Dependency Resolution
 
@@ -117,8 +117,8 @@ The Daemon runs a configurable tick loop (default `TICK_INTERVAL`). Each tick:
 6. **Review gate** — if `review_policy` requires it, a dynamic review task is created. Otherwise, machine proof unlocks downstream.
 
 ```
-created → dispatched → claimed → running → completed
-                              ↘ failed → retry / dead-letter
+created → dispatched → running → completion_pending → review_pending → completed
+                              ↘ retry_ready / blocked / dead_letter / cancelled
 ```
 
 ---
@@ -230,8 +230,10 @@ Nexus-Dispatch/
 | --- | --- |
 | [docs/install.md](./docs/install.md) | Full deployment guide: Docker Compose, systemd, smoke tests, troubleshooting |
 | [docs/v8/](./docs/v8/) | Runtime proof documents, API contracts, and schema specs |
-| [docs/assets/](./docs/assets/) | Product visuals: hero and architecture diagrams (SVG + PNG) |
-| [README.zh-CN.md](./README.zh-CN.md) | 中文版 README |
+| [docs/assets/](./docs/assets/) | Product visuals: hero, architecture, and guide diagrams |
+| [docs/assets/guide/](./docs/assets/guide/) | Guide visuals: deployment flow, Hermes/OpenClaw integration, proof render |
+| [README.zh-CN.md](./README.zh-CN.md) | 简体中文版 README |
+| [README.zh-TW.md](./README.zh-TW.md) | 繁體中文入口（佔位，翻譯規劃中） |
 
 ---
 
@@ -243,7 +245,8 @@ npx prisma validate                              # Validate schema
 npm test -- --runInBand                          # Run test suite
 npm --prefix src/webui run build                 # Build WebUI
 git diff --check                                 # Catch whitespace issues
-./scripts/health-check.sh --quick || true        # Deployment health (warnings OK on dev)
+npm run validate:api-deploy -- --skip-health    # Prisma + focused V8 deploy checks
+./scripts/health-check.sh --quick || true        # Live deployment health (warnings OK on dev)
 ```
 
 ---

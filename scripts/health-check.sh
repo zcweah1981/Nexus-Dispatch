@@ -110,7 +110,7 @@ check_api() {
     result WARNING api-token missing "PM_API_TOKEN/API_AUTH_TOKEN not exported; skip authenticated runtime smoke"
   fi
 
-  sse_code=$(timeout 5 curl -sS -N -o /tmp/nexus-dispatch-health-sse.txt -w "%{http_code}" "http://127.0.0.1:${API_PORT}/events/stream" 2>/dev/null || true)
+  sse_code=$(timeout 5 curl -sS -N -o /tmp/nexus-dispatch-health-sse.txt -w "%{http_code}" "http://127.0.0.1:${API_PORT}/api/v1/events/stream" 2>/dev/null || true)
   if grep -q "connected" /tmp/nexus-dispatch-health-sse.txt 2>/dev/null; then
     result OK sse-stream connected "event stream emitted connected frame"
   else

@@ -1,6 +1,34 @@
 # Installation & Deployment Guide
 
-> This document was migrated from the root README.md. For the product overview, see [README.md](../README.md).
+> R13_API_SERVER_DEPLOY_GUIDE_CONTRACT
+>
+> This guide is the API Server deployment runbook. For the product overview, see [README.md](../README.md).
+
+![Guide cover](./assets/guide/nexus-guide-cover.jpg)
+
+## Visual Map
+
+### Deployment flow
+
+![Deployment flow](./assets/guide/deployment-flow.png)
+
+### Hermes integration
+
+![Hermes integration](./assets/guide/hermes-integration.png)
+
+### OpenClaw worker integration
+
+![OpenClaw integration](./assets/guide/openclaw-integration.png)
+
+### Dual-system architecture
+
+![Dual-system architecture](./assets/guide/dual-system-architecture.png)
+
+### API server verification proof
+
+![API server verification proof](./assets/guide/api-server-verification-proof.png)
+
+---
 
 ---
 
@@ -22,7 +50,7 @@ There is no `install.sh` one-click script or Swagger UI page. Use the smoke-test
 All `/api/v1/*` requests require:
 
 ```bash
-  -H "Authorization: Bearer <api-credential>" \
+  -H "Authorization: Bearer $API_AUTH_TOKEN" \
 ```
 
 Key endpoints:
@@ -87,11 +115,11 @@ curl -i "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/tasks/pending?p
 
 # Authenticated request: should return JSON (empty tasks is normal)
 curl -sS \
-  -H "Authorization: Bearer <api-credential>" \
+  -H "Authorization: Bearer $API_AUTH_TOKEN" \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/tasks/pending?project_id=${NEXUS_PROJECT_ID:-nexus-dispatch}"
 
 # SSE stream: should show connected/ping (timeout prevents blocking the terminal)
-timeout 5 curl -N "http://localhost:${NEXUS_API_PORT:-8000}/events/stream"
+timeout 5 curl -N -H "Authorization: Bearer $API_AUTH_TOKEN" "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/events/stream"
 
 # WebUI
 curl -I "http://localhost:${NEXUS_WEBUI_PORT:-3030}/"
@@ -99,6 +127,63 @@ curl -I "http://localhost:${NEXUS_WEBUI_PORT:-3030}/"
 # Comprehensive health script (warnings on first start are expected)
 ./scripts/health-check.sh --quick
 ```
+
+### 3.4 Clone to first completed task
+
+The shortest end-to-end path from a clean clone to the first task reaching `completed` is:
+
+1. **Clone and configure**
+   ```bash
+   git clone https://github.com/zcweah1981/Nexus-Dispatch.git /opt/projects/nexus-dispatch
+   cd /opt/projects/nexus-dispatch
+   cp .env.example .env
+   # Fill API_AUTH_TOKEN and PM_API_TOKEN with the same local secret.
+   ```
+2. **Apply database migrations and start the API**
+   ```bash
+   npm ci
+   npx prisma generate
+   npx prisma migrate deploy
+   npm run build
+   npm start
+   ```
+3. **In another terminal, create a project, register one worker, and create one task**
+   ```bash
+   export API_AUTH_TOKEN="<local-api-token>"
+   export NEXUS_PROJECT_ID="nexus-dispatch"
+
+   curl -sS -X POST "http://localhost:8000/api/v1/runtime/projects" \
+     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"id":"nexus-dispatch","name":"nexus-dispatch"}'
+
+   curl -sS -X POST "http://localhost:8000/api/v1/runtime/projects/nexus-dispatch/agents" \
+     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"agent_id":"long-coder-1","endpoint":"http://worker-host:8647/v1/runs","lane":"DEV","dialect":"openclaw","max_concurrency":1,"status":"online"}'
+
+   curl -sS -X POST "http://localhost:8000/api/v1/runtime/tasks" \
+     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+     -H "Content-Type: application/json" \
+     -d '{"project_id":"nexus-dispatch","id":"first-task","title":"First task","objective":"Verify the API Server lifecycle","lane_required":"DEV","acceptance_mode":"group_only","acceptance_criteria":["task reaches completed through Runtime API transitions"]}'
+   ```
+4. **Drive the minimal V8 lifecycle through the Runtime API**
+   ```bash
+   for event in dispatch start submit_completion request_review review_pass; do
+     curl -sS -X POST "http://localhost:8000/api/v1/runtime/tasks/transition" \
+       -H "Authorization: Bearer $API_AUTH_TOKEN" \
+       -H "Content-Type: application/json" \
+       -d "{\"project_id\":\"nexus-dispatch\",\"task_id\":\"first-task\",\"event\":\"${event}\",\"proof\":{\"source\":\"install-guide-smoke\"}}"
+   done
+   ```
+5. **Verify the first task**
+   ```bash
+   curl -sS "http://localhost:8000/api/v1/runtime/tasks/first-task?project_id=nexus-dispatch" \
+     -H "Authorization: Bearer $API_AUTH_TOKEN" \
+   # Expected: task.status == "completed"
+   ```
+
+For real worker operation, start `npm run daemon` after worker registration; the daemon dispatches through registered worker endpoints and workers submit proof back through the same Runtime API boundary.
 
 ---
 
@@ -136,7 +221,7 @@ Workers are external execution nodes — they are **not** bundled inside the Nex
 ```bash
 curl -sS -X POST \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/projects/${NEXUS_PROJECT_ID:-nexus-dispatch}/agents" \
-  -H "Authorization: Bearer <api-credential>" \
+  -H "Authorization: Bearer $API_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "long-coder-1",
@@ -221,7 +306,7 @@ Set project visible language through the Runtime API after the project exists:
 
 ```bash
 curl -sS -X PATCH "$PM_API_URL/runtime/projects/nexus-dispatch/settings/visible-language" \
-  -H "Authorization: Bearer <api-credential>" \
+  -H "Authorization: Bearer $API_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"visible_language":"en-US"}'
 ```
@@ -252,14 +337,78 @@ Recommended pause flow:
 # Pause the registry (does NOT kill the external process — adapter converges on next read)
 curl -sS -X PATCH \
   "http://localhost:${NEXUS_API_PORT:-8000}/api/v1/runtime/projects/${NEXUS_PROJECT_ID:-nexus-dispatch}/cronjobs/<cronjob_id>/status" \
-  -H "Authorization: Bearer <api-credential>" \
+  -H "Authorization: Bearer $API_AUTH_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"status":"paused"}'
 ```
 
 ---
 
-## 10. Troubleshooting
+## 10. Logs, migrations, and operational controls
+
+### 10.1 Logs
+
+Docker Compose:
+
+```bash
+docker compose logs -f --tail=100 nexus-api
+docker compose logs -f --tail=100 nexus-daemon
+docker compose logs -f --tail=100 nexus-webui
+```
+
+systemd:
+
+```bash
+journalctl -u nexus-dispatch-api -f
+journalctl -u nexus-dispatch-daemon -f --since "10 minutes ago"
+journalctl -u nexus-dispatch-api -n 100 --no-pager
+```
+
+Keep visible Telegram text short and human-readable; full runtime IDs and raw proof remain in Runtime DB artifacts/reports.
+
+### 10.2 Database migrations
+
+The API Server owns SQLite/Prisma. Workers, WebUI, and the PM Daemon must not open SQLite directly.
+
+```bash
+npx prisma validate
+npx prisma migrate deploy
+npm run validate:api-deploy -- --skip-health
+```
+
+Docker entrypoint runs `npx prisma migrate deploy` before `node dist/index.js` unless `SKIP_PRISMA_MIGRATE=1` is explicitly set for controlled recovery.
+
+### 10.3 PM daemon start/stop
+
+Local:
+
+```bash
+npm run daemon
+```
+
+systemd:
+
+```bash
+sudo systemctl stop nexus-dispatch-daemon.service
+sudo systemctl start nexus-dispatch-daemon.service
+sudo systemctl restart nexus-dispatch-daemon.service
+```
+
+Restart order: stop daemon first, restart/migrate API, then start daemon. This avoids daemon ticks during API migration/restart windows.
+
+### 10.4 Validation script
+
+`npm run validate:api-deploy` runs Prisma validation, the R13 deploy-guide contract, and the V8 Runtime API boundary subset. By default it also probes the live API if `API_AUTH_TOKEN` or `PM_API_TOKEN` is exported.
+
+```bash
+npm run validate:api-deploy -- --skip-health     # source/Prisma/test validation only
+API_AUTH_TOKEN="<local-api-token>" npm run validate:api-deploy
+npm run validate:api-deploy -- --json --skip-health
+```
+
+---
+
+## 11. Troubleshooting
 
 | Symptom | Check Command | Common Cause / Fix |
 | --- | --- | --- |
@@ -273,15 +422,17 @@ curl -sS -X PATCH \
 
 ---
 
-## 11. Verification Commands
+## 12. Verification Commands
 
 ```bash
+npm run validate:api-deploy -- --skip-health
 npm run build
-npm test -- --runInBand tests/v8/v8_retire_legacy_routes.test.ts
+npm test -- --runInBand tests/v8/v8_api_server_deploy_guide.test.ts tests/v8/v8_retire_legacy_routes.test.ts tests/v8/v8_runtime_api_route_boundary.test.ts
 npx prisma validate
 npm --prefix src/webui run build
+docker compose config --quiet
 git diff --check
 ./scripts/health-check.sh --quick || true
 ```
 
-`health-check.sh` may return warnings or critical status on an empty or non-Docker/systemd environment. It is a deployment-machine inspection tool — source-level delivery is validated by build, test, prisma, and diff-check.
+`validate-api-deploy.js` is source/test oriented and safe to run on developer machines. `health-check.sh` may return warnings or critical status on an empty or non-Docker/systemd environment. It is a deployment-machine inspection tool — source-level delivery is validated by build, test, prisma, and diff-check.
