@@ -1,64 +1,97 @@
 <div align="center">
-  <img src="./docs/assets/nexus-hero.png" alt="Nexus Dispatch" width="720" />
+  <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" width="140" />
+  <br />
+  <img src="./docs/assets/nexus-hero.png" alt="Nexus Dispatch — Control Center for Autonomous AI Agent Teams" width="720" />
   <h1>Nexus Dispatch</h1>
-  <p><strong>One brain. Many hands. Zero trust.</strong></p>
+  <p><strong>The Control Center for Autonomous AI Agent Teams</strong></p>
   <p>
+    <a href="./README.md">English</a> ·
     <a href="./README.zh-CN.md">简体中文</a> ·
     <a href="./README.zh-TW.md">繁體中文</a>
   </p>
 </div>
 
----
-
-> **Multi-agent orchestration, finally under control.**
->
-> Nexus Dispatch is the control plane your AI agents don't have — a single PM-style brain that dispatches, tracks, and verifies work across any number of heterogeneous agents, backed by an API-only, state-machine-driven runtime with zero-trust proof gates.
-
 <p align="center">
-  <img src="https://img.shields.io/badge/Runtime-API_only-blue" alt="API-only Runtime" />
-  <img src="https://img.shields.io/badge/Storage-SQLite_SSoT-green" alt="SQLite SSoT" />
-  <img src="https://img.shields.io/badge/Agents-Multi--Agent_Control_Plane-purple" alt="Multi-Agent Control Plane" />
-  <img src="https://img.shields.io/badge/Security-Zero_Trust_Proof-red" alt="Zero-Trust Proof" />
-  <img src="https://img.shields.io/badge/Brain-PM_Daemon-orange" alt="PM Daemon" />
-  <img src="https://img.shields.io/badge/Interface-Telegram_·_WebUI-teal" alt="Telegram / WebUI" />
-  <img src="https://img.shields.io/badge/Scheduler-Cron_Adapter-yellow" alt="Cron Adapter" />
+  <img src="https://img.shields.io/badge/Brain-PM_Brain-orange" alt="PM Brain" />
+  <img src="https://img.shields.io/badge/Tasks-Long--running_Unattended-9cf" alt="Long-running Tasks" />
+  <img src="https://img.shields.io/badge/Fleet-Multi--Agent-purple" alt="Multi-Agent Fleet" />
+  <img src="https://img.shields.io/badge/Delivery-Proof--based-brightgreen" alt="Proof-based Delivery" />
+  <img src="https://img.shields.io/badge/Visibility-Telegram_+_WebUI-teal" alt="Telegram + WebUI" />
+  <img src="https://img.shields.io/badge/Runtime-API_Control_Plane-blue" alt="API Control Plane" />
+  <img src="https://img.shields.io/badge/Workflow-Unattended-success" alt="Unattended Workflow" />
+  <img src="https://img.shields.io/badge/Deploy-Docker_·_systemd-informational" alt="Docker/systemd Ready" />
   <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
 </p>
 
 ---
 
-## The Problem
-
-You have 5, 10, or 50 AI agents — but no brain coordinating them. Tasks get lost, duplicated, or "completed" without evidence. Chat channels drown in noise. Nobody can answer a simple question: *what actually shipped, and is it verified?*
-
-Nexus Dispatch fixes this. It's not another chatbot framework or agent toolkit — it's the **mission control** that sits above your agents and makes sure the right work reaches the right agent, gets done, gets proved, and gets tracked. Every time.
+> **One PM brain orchestrating your entire AI agent fleet — dispatching, tracking, and verifying every task to completion.**
+>
+> Nexus Dispatch is the mission control your multi-agent team has been missing. A single PM-style brain coordinates heterogeneous AI agents through an API-first, state-machine-driven runtime with proof-based delivery gates — so the right work reaches the right agent, gets done with verifiable evidence, and stays on track. Fully unattended. Fully observable.
 
 ---
 
-## Who Is This For?
+## ✨ Why Nexus Dispatch?
+
+You have agents — Codex, Claude, Hermes, OpenClaw, custom workers — but no one's running the show. Tasks slip through the cracks. Completions go unverified. Chat channels drown in noise.
+
+Nexus Dispatch gives you a **PM brain** that never sleeps:
+
+| ✅ What You Get | ⚙️ How It Works |
+| --- | --- |
+| 🧠 **Intelligent dispatch** | PM Brain evaluates priorities, resolves DAG dependencies, and routes work to the right agent at the right time. |
+| 🔁 **Long-running, unattended workflows** | Fire-and-forget task chains that run to completion — even across hours or days — with automatic retry and state recovery. |
+| 🛡️ **Proof-based delivery** | Workers submit structured artifacts (Git SHA, file hashes, screenshots). Nothing is "done" until proof passes the gate. |
+| 🤖 **Multi-agent fleet management** | Register heterogeneous workers by lane and concurrency. The Daemon fans out work and collects results through a single API boundary. |
+| 📱 **Full visibility via Telegram + WebUI** | Each agent notifies through its own bot. The WebUI dashboard streams live task state, DAG progress, and artifact galleries via SSE. |
+| 🔌 **API-first runtime** | Every state transition goes through REST. No shared database, no SSH tunnels, no agent with direct DB access — clean API-only architecture. |
+| 🐳 **Docker & systemd ready** | Single VPS deployment. One SQLite file. Zero external database dependencies. Production-grade in minutes. |
+
+---
+
+## 🏷️ Product Highlights
+
+```
+🧠 PM Brain              ·  DAG-aware priority dispatch with dependency resolution
+⏳ Long-running Tasks    ·  Unattended multi-hour/multi-day workflow chains
+🤖 Multi-Agent Fleet     ·  Heterogeneous workers with lane routing & concurrency control
+🛡️ Proof-based Delivery  ·  Structured artifacts required at every completion gate
+📱 Telegram + WebUI      ·  Per-agent bot notifications + live SSE dashboard
+🔌 API Control Plane     ·  REST-only state machine, Bearer token auth, no direct DB access
+🔄 Unattended Workflow   ·  Fire-and-forget with automatic retry, blocked-state recovery
+🐳 Docker/systemd Ready ·  Single VPS, one SQLite file, zero external deps
+```
+
+---
+
+## 👥 Who Is This For?
 
 | Role | How You Use It |
 | --- | --- |
 | **AI Agent Teams** | Dispatch coding, design, content, and review tasks to specialized agents with lane-based routing and concurrency control. |
 | **Engineering Leads** | Monitor the full task lifecycle via WebUI + SSE — from dispatch through review to completion with artifact proof. |
-| **Solo Builders with Agents** | Run a lightweight PM Daemon that keeps your multi-agent workflow honest without building orchestration from scratch. |
+| **Solo Builders with Agents** | Run a lightweight PM Brain that keeps your multi-agent workflow honest without building orchestration from scratch. |
 | **Ops & Platform Teams** | Deploy via Docker Compose or systemd on a single VPS. SQLite SSoT means no external database to manage. |
 
 ---
 
-## Why Nexus Dispatch?
+## 🖼️ Product Flow
 
-| What You Get | How It Works |
-| --- | --- |
-| **No more lost tasks** | A PM Daemon evaluates priorities, resolves dependencies via DAG, and fans out work to the right agent at the right time. |
-| **No more fake completions** | Workers submit proof, runs, and artifacts through the Runtime API. Nothing is "done" until the state machine says so. |
-| **No shared database** | Every state transition goes through REST. No SSH tunnels, no agent with direct DB access. |
-| **No credential leaks** | Telegram notifications are sent by each agent's own bot. Tracking IDs stay in the database, not in chat. |
-| **No deployment complexity** | Single VPS, Docker Compose, or bare metal. One SQLite file. Zero external dependencies. |
+*How work flows through Nexus Dispatch — from task creation to verified delivery.*
+
+![Nexus Dispatch product flow](./docs/assets/nexus-product-flow.png)
+
+1. **PM creates a task** with lane, dependencies, and review policy.
+2. **PM Brain dispatches it** to the right specialized worker over the Runtime API.
+3. **Worker executes and submits proof** — runs, artifacts, and completion payloads come back through the same API boundary.
+4. **Review gate accepts or rejects** based on policy and proof quality. High-risk tasks require human review; routine work auto-advances on machine-verified proof.
+5. **Telegram + WebUI reflect the result** in human-readable form — no internal IDs or raw secrets in chat.
 
 ---
 
-## Architecture
+## 🏗️ Architecture
+
+*System structure — single PM brain, multiple dumb terminals, API-only data flow.*
 
 ![Nexus Dispatch architecture](./docs/assets/nexus-architecture.png)
 
@@ -97,19 +130,27 @@ Nexus Dispatch fixes this. It's not another chatbot framework or agent toolkit �
 
 ---
 
-## Core Capabilities
+## 🧼 Sanitized Usage Screenshot
+
+*Representative product usage view for documentation: Telegram dispatch messages + WebUI progress board, with contacts, runtime IDs, and credentials redacted.*
+
+![Nexus Dispatch sanitized usage screenshot](./docs/assets/nexus-sanitized-usage-screenshot.png)
+
+---
+
+## ⚡ Core Capabilities
 
 ### 🔄 State-Machine Task Lifecycle
 
-Every task follows a strict finite-state machine: `created → dispatched → running → completion_pending → review_pending → completed` with retry, blocked, dead-letter, and cancelled branches. No shortcuts. No agent can skip states or self-mark "done."
+Every task follows a strict finite-state machine: `created → dispatched → running → completion_pending → review_pending → completed` with retry, blocked, dead-letter, and cancelled branches. No shortcuts. No agent can skip states or self-mark done.
 
 ### 🔗 DAG-Based Dependency Resolution
 
-Tasks declare dependencies. The Daemon's DAG engine performs topological ordering with cycle detection — circular dependencies are rejected before dispatch, not after a mysterious hang.
+Tasks declare dependencies. The PM Brain's DAG engine performs topological ordering with cycle detection — circular dependencies are rejected before dispatch, not after a mysterious hang.
 
 ### 🛡️ Dynamic Review & Proof Gate
 
-Tasks carry a `review_policy` (`group_only`, `pm_audit`, etc.). High-risk work requires reviewer proof before the state machine unlocks downstream tasks. Routine work can auto-advance after machine-verified artifact submission.
+Tasks carry a `review_policy` (`group_only`, `pm_audit`, etc.). High-risk work requires reviewer proof before the state machine unlocks downstream tasks. Routine work auto-advances after machine-verified artifact submission — keeping your pipeline flowing without bottlenecks.
 
 ### 📋 Blueprint & Phase Management
 
@@ -129,37 +170,7 @@ A lightweight dashboard reads the API and SSE stream. View task states, DAG phas
 
 ---
 
-## Runtime Model
-
-The Daemon runs a configurable tick loop (default `TICK_INTERVAL`). Each tick:
-
-1. **Fetch pending tasks** — queries `/api/v1/runtime/tasks/pending` filtered by project and lane.
-2. **Resolve DAG** — topological sort with cycle detection. Tasks with unmet dependencies stay queued.
-3. **Evaluate priority & lane** — matches task lane to online agents. Respects `max_concurrency` per agent.
-4. **Dispatch** — POSTs to the worker's registered `endpoint`. State transitions to `dispatched`.
-5. **Await proof** — workers call back via Runtime API with runs, reports, and artifacts.
-6. **Review gate** — if `review_policy` requires it, a dynamic review task is created. Otherwise, machine proof unlocks downstream.
-
-```
-created → dispatched → running → completion_pending → review_pending → completed
-                              ↘ retry_ready / blocked / dead_letter / cancelled
-```
-
-## How Work Flows
-
-![Nexus Dispatch usage flow](./docs/assets/nexus-usage-flow.png)
-
-A typical delivery path is intentionally strict and visible:
-
-1. **PM creates a task** with lane, dependencies, and review policy.
-2. **Daemon dispatches it** to the right specialized worker over the Runtime API.
-3. **Worker submits proof** — runs, artifacts, and completion payloads come back through the same API boundary.
-4. **PM / review gate accepts or rejects** based on policy and proof quality.
-5. **Telegram + WebUI reflect the result** in human-readable form without exposing internal IDs or raw secrets.
-
----
-
-## Quick Start
+## 🚀 Quick Start
 
 ### Prerequisites
 
@@ -224,7 +235,7 @@ curl -sS -X POST \
 
 ---
 
-## Security & Secrets Boundary
+## 🔐 Security & Secrets Boundary
 
 Nexus Dispatch enforces strict boundaries around credentials and data:
 
@@ -237,7 +248,7 @@ Nexus Dispatch enforces strict boundaries around credentials and data:
 
 ---
 
-## Project Structure
+## 📁 Project Structure
 
 ```
 Nexus-Dispatch/
@@ -260,7 +271,7 @@ Nexus-Dispatch/
 
 ---
 
-## Documentation Index
+## 📚 Documentation Index
 
 | Document | Description |
 | --- | --- |
@@ -269,14 +280,14 @@ Nexus-Dispatch/
 | [docs/install.zh-TW.md](./docs/install.zh-TW.md) | Traditional Chinese install guide: shared assets, localized captions, and navigation |
 | [docs/TRILINGUAL-STRATEGY.md](./docs/TRILINGUAL-STRATEGY.md) | Trilingual docs map, naming convention, and localization rules |
 | [docs/v8/](./docs/v8/) | Runtime proof documents, API contracts, and schema specs |
-| [docs/assets/](./docs/assets/) | Product visuals: hero, architecture, and guide diagrams |
+| [docs/assets/](./docs/assets/) | Product visuals: logo, hero, product flow, architecture, sanitized screenshot, and guide diagrams |
 | [docs/assets/guide/](./docs/assets/guide/) | Guide visuals: deployment flow, Hermes/OpenClaw integration, proof render |
 | [README.zh-CN.md](./README.zh-CN.md) | 简体中文版 README |
 | [README.zh-TW.md](./README.zh-TW.md) | 繁體中文入口（佔位，翻譯規劃中） |
 
 ---
 
-## Verification Commands
+## ✅ Verification Commands
 
 ```bash
 npm run build                                    # Compile TypeScript
@@ -290,7 +301,7 @@ npm run validate:api-deploy -- --skip-health     # Prisma + focused V8 deploy ch
 
 ---
 
-## License
+## 📄 License
 
 This project is licensed under the [MIT License](./LICENSE).
 
