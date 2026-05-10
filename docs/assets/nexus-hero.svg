@@ -1,0 +1,127 @@
+<svg width="1600" height="900" viewBox="0 0 1600 900" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="220" y1="40" x2="1380" y2="860" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#08111f"/>
+      <stop offset="0.55" stop-color="#0b1730"/>
+      <stop offset="1" stop-color="#09101c"/>
+    </linearGradient>
+    <radialGradient id="glowCyan" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(520 170) rotate(90) scale(260 360)">
+      <stop stop-color="#22D3EE" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#22D3EE" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="glowViolet" cx="0" cy="0" r="1" gradientUnits="userSpaceOnUse" gradientTransform="translate(1220 690) rotate(90) scale(260 420)">
+      <stop stop-color="#8B5CF6" stop-opacity="0.24"/>
+      <stop offset="1" stop-color="#8B5CF6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="cardStroke" x1="320" y1="250" x2="1240" y2="650" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#22D3EE"/>
+      <stop offset="0.5" stop-color="#60A5FA"/>
+      <stop offset="1" stop-color="#A78BFA"/>
+    </linearGradient>
+    <linearGradient id="chipStroke" x1="0" y1="0" x2="1" y2="1">
+      <stop stop-color="#3DD5F3"/>
+      <stop offset="1" stop-color="#8B5CF6"/>
+    </linearGradient>
+    <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
+      <path d="M48 0H0V48" stroke="#17304D" stroke-width="1" stroke-opacity="0.55"/>
+    </pattern>
+    <filter id="softGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="18" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+  </defs>
+
+  <rect width="1600" height="900" rx="32" fill="url(#bg)"/>
+  <rect width="1600" height="900" rx="32" fill="url(#grid)"/>
+  <rect x="0" y="0" width="1600" height="900" fill="url(#glowCyan)"/>
+  <rect x="0" y="0" width="1600" height="900" fill="url(#glowViolet)"/>
+
+  <g opacity="0.7">
+    <path d="M104 151H352" stroke="#1E3A5F" stroke-width="2"/>
+    <path d="M1248 734H1496" stroke="#2A2B59" stroke-width="2"/>
+    <path d="M130 121L130 780" stroke="#14243A" stroke-width="1.5"/>
+    <path d="M1470 121L1470 780" stroke="#14243A" stroke-width="1.5"/>
+  </g>
+
+  <g>
+    <rect x="104" y="98" width="152" height="34" rx="17" fill="#081829" stroke="#214563"/>
+    <circle cx="128" cy="115" r="5" fill="#22D3EE"/>
+    <text x="144" y="121" fill="#D5E8FF" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">NEXUS CONTROL PLANE</text>
+  </g>
+
+  <text x="104" y="252" fill="#F8FBFF" font-size="82" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Nexus Dispatch</text>
+  <text x="104" y="326" fill="#9CC7E8" font-size="32" font-weight="500" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Single PM brain. API-only runtime. Multi-agent execution at control-plane scale.</text>
+  <text x="104" y="390" fill="#79A1C4" font-size="21" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Telegram orchestration, Runtime API, SQLite SSoT, daemon tick loop, proof artifacts, WebUI observability, and project-scoped cron governance — in one productized dispatch surface.</text>
+
+  <g>
+    <rect x="104" y="458" width="208" height="52" rx="26" fill="#0E2238" stroke="#1D4868"/>
+    <text x="136" y="491" fill="#E7F4FF" font-size="18" font-weight="600" font-family="'Inter', 'Segoe UI', Arial, sans-serif">API-only Runtime Core</text>
+    <rect x="328" y="458" width="184" height="52" rx="26" fill="#111C36" stroke="#364B75"/>
+    <text x="360" y="491" fill="#E7EFFF" font-size="18" font-weight="600" font-family="'Inter', 'Segoe UI', Arial, sans-serif">SQLite SSoT</text>
+    <rect x="528" y="458" width="222" height="52" rx="26" fill="#162038" stroke="#5D4AA1"/>
+    <text x="560" y="491" fill="#F0E9FF" font-size="18" font-weight="600" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Governed Agent Fan-out</text>
+  </g>
+
+  <g filter="url(#softGlow)">
+    <rect x="880" y="170" width="576" height="488" rx="28" fill="#07111E" stroke="url(#cardStroke)" stroke-width="2"/>
+    <rect x="904" y="198" width="528" height="86" rx="18" fill="#0B1B2C" stroke="#1B4260"/>
+    <circle cx="936" cy="241" r="10" fill="#22D3EE"/>
+    <text x="960" y="237" fill="#DDF6FF" font-size="28" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">PM Runtime API</text>
+    <text x="960" y="264" fill="#7FB1CF" font-size="16" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">single control surface · service/FSM boundary · no direct SQL</text>
+
+    <rect x="936" y="334" width="164" height="104" rx="20" fill="#0C2233" stroke="#22D3EE"/>
+    <text x="962" y="376" fill="#E9F8FF" font-size="22" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Telegram</text>
+    <text x="962" y="403" fill="#8AB4D8" font-size="14" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">group delivery</text>
+    <text x="962" y="422" fill="#8AB4D8" font-size="14" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">dispatch input</text>
+
+    <rect x="1130" y="334" width="164" height="104" rx="20" fill="#13203A" stroke="#A78BFA"/>
+    <text x="1156" y="376" fill="#F3EDFF" font-size="22" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">SQLite</text>
+    <text x="1156" y="403" fill="#B3A4E7" font-size="14" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">SSoT state</text>
+    <text x="1156" y="422" fill="#B3A4E7" font-size="14" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">inside API only</text>
+
+    <rect x="1033" y="484" width="164" height="104" rx="20" fill="#102637" stroke="#34D399"/>
+    <text x="1062" y="526" fill="#E8FFF4" font-size="22" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Daemon</text>
+    <text x="1062" y="553" fill="#9BDAC2" font-size="14" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">tick loop</text>
+    <text x="1062" y="572" fill="#9BDAC2" font-size="14" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">claim → route → review</text>
+
+    <rect x="1226" y="484" width="164" height="104" rx="20" fill="#21172F" stroke="#F59E0B"/>
+    <text x="1258" y="526" fill="#FFF3D9" font-size="22" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">WebUI</text>
+    <text x="1258" y="553" fill="#F0C67D" font-size="14" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">read-only ops</text>
+    <text x="1258" y="572" fill="#F0C67D" font-size="14" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">proof gallery</text>
+
+    <path d="M1088 284V320H1018V334" stroke="#3DD5F3" stroke-width="3" stroke-linecap="round"/>
+    <path d="M1168 284V320H1212V334" stroke="#8B5CF6" stroke-width="3" stroke-linecap="round"/>
+    <path d="M1168 284V450H1115V484" stroke="#34D399" stroke-width="3" stroke-linecap="round"/>
+    <path d="M1228 284V450H1308V484" stroke="#F59E0B" stroke-width="3" stroke-linecap="round"/>
+
+    <circle cx="1018" cy="334" r="4" fill="#3DD5F3"/>
+    <circle cx="1212" cy="334" r="4" fill="#8B5CF6"/>
+    <circle cx="1115" cy="484" r="4" fill="#34D399"/>
+    <circle cx="1308" cy="484" r="4" fill="#F59E0B"/>
+  </g>
+
+  <g>
+    <rect x="104" y="726" width="160" height="92" rx="18" fill="#081829" stroke="#214563"/>
+    <text x="128" y="760" fill="#DBF7FF" font-size="16" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Control</text>
+    <text x="128" y="784" fill="#84AFCE" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">PM Runtime API</text>
+    <text x="128" y="802" fill="#84AFCE" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">FSM / policy gate</text>
+
+    <rect x="282" y="726" width="160" height="92" rx="18" fill="#101A33" stroke="#3D5483"/>
+    <text x="306" y="760" fill="#EEF2FF" font-size="16" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">State</text>
+    <text x="306" y="784" fill="#9CABDE" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">SQLite SSoT</text>
+    <text x="306" y="802" fill="#9CABDE" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">project-scoped rows</text>
+
+    <rect x="460" y="726" width="160" height="92" rx="18" fill="#122336" stroke="#2F8E79"/>
+    <text x="484" y="760" fill="#E8FFF5" font-size="16" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Execution</text>
+    <text x="484" y="784" fill="#A6E0CB" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">daemon + agents</text>
+    <text x="484" y="802" fill="#A6E0CB" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">lane fan-out</text>
+
+    <rect x="638" y="726" width="206" height="92" rx="18" fill="#21172F" stroke="#7A4CC0"/>
+    <text x="662" y="760" fill="#F6ECFF" font-size="16" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Auditability</text>
+    <text x="662" y="784" fill="#C7ACE9" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">proof artifacts · review gates</text>
+    <text x="662" y="802" fill="#C7ACE9" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">human-readable messages</text>
+  </g>
+</svg>

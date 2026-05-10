@@ -1,0 +1,100 @@
+<svg width="1600" height="1040" viewBox="0 0 1600 1040" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="240" y1="80" x2="1360" y2="960" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#020617"/>
+      <stop offset="0.55" stop-color="#071321"/>
+      <stop offset="1" stop-color="#030712"/>
+    </linearGradient>
+    <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+      <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#1E293B" stroke-width="0.6"/>
+    </pattern>
+    <marker id="arrowCyan" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#22D3EE"/>
+    </marker>
+    <marker id="arrowEmerald" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#34D399"/>
+    </marker>
+    <marker id="arrowViolet" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#A78BFA"/>
+    </marker>
+    <marker id="arrowAmber" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#FBBF24"/>
+    </marker>
+    <marker id="arrowSlate" markerWidth="10" markerHeight="10" refX="8" refY="5" orient="auto">
+      <path d="M0 0L10 5L0 10Z" fill="#94A3B8"/>
+    </marker>
+  </defs>
+
+  <rect width="1600" height="1040" rx="28" fill="url(#bg)"/>
+  <rect width="1600" height="1040" rx="28" fill="url(#grid)"/>
+
+  <text x="88" y="86" fill="#F8FAFC" font-size="34" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Nexus Dispatch — Control Plane Architecture</text>
+  <text x="88" y="122" fill="#93C5FD" font-size="16" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">Telegram / PM Runtime API / SQLite SSoT / Daemon / Agents / Proof / WebUI / Cron registry relationship</text>
+
+  <path d="M340 274H700" stroke="#22D3EE" stroke-width="3" marker-end="url(#arrowCyan)"/>
+  <path d="M340 784H700" stroke="#FBBF24" stroke-width="3" marker-end="url(#arrowAmber)"/>
+  <path d="M862 326V246H1154V274" stroke="#22D3EE" stroke-width="3" marker-end="url(#arrowCyan)"/>
+  <path d="M1046 326V246H1262V274" stroke="#A78BFA" stroke-width="3" marker-end="url(#arrowViolet)"/>
+  <path d="M954 446V542" stroke="#34D399" stroke-width="3" marker-end="url(#arrowEmerald)"/>
+  <path d="M954 714V780" stroke="#34D399" stroke-width="3" marker-end="url(#arrowEmerald)"/>
+  <path d="M1244 714V780" stroke="#FBBF24" stroke-width="3" marker-end="url(#arrowAmber)"/>
+  <path d="M866 846H1130" stroke="#94A3B8" stroke-width="3" stroke-dasharray="8 8" marker-end="url(#arrowSlate)"/>
+  <path d="M1348 846H1498V406H1324" stroke="#94A3B8" stroke-width="3" stroke-dasharray="8 8" marker-end="url(#arrowSlate)"/>
+  <path d="M1144 846H1040V956H824V874" stroke="#94A3B8" stroke-width="2.5" stroke-dasharray="8 8" marker-end="url(#arrowSlate)"/>
+
+  <rect x="68" y="166" width="256" height="238" rx="24" fill="#0B1726" stroke="#1D4ED8" stroke-dasharray="10 8"/>
+  <text x="96" y="204" fill="#DBEAFE" font-size="22" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Human / Delivery Edge</text>
+  <rect x="96" y="236" width="200" height="128" rx="18" fill="rgba(8,51,68,0.4)" stroke="#22D3EE" stroke-width="1.8"/>
+  <text x="122" y="282" fill="#E0F7FF" font-size="24" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Telegram</text>
+  <text x="122" y="312" fill="#93C5FD" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">PM group input</text>
+  <text x="122" y="332" fill="#93C5FD" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">agent bot delivery</text>
+
+  <rect x="68" y="676" width="256" height="218" rx="24" fill="#1A1307" stroke="#F59E0B" stroke-dasharray="10 8"/>
+  <text x="96" y="714" fill="#FDE68A" font-size="22" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">External Scheduler</text>
+  <rect x="96" y="748" width="200" height="110" rx="18" fill="rgba(120,53,15,0.3)" stroke="#FBBF24" stroke-width="1.8"/>
+  <text x="122" y="792" fill="#FEF3C7" font-size="23" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Cron Adapter</text>
+  <text x="122" y="820" fill="#FCD34D" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">reads eligible registry</text>
+  <text x="122" y="840" fill="#FCD34D" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">starts/stops external jobs</text>
+
+  <rect x="700" y="166" width="640" height="742" rx="28" fill="#07111B" stroke="#334155"/>
+  <text x="732" y="206" fill="#E2E8F0" font-size="24" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Nexus Dispatch Control Plane</text>
+  <text x="732" y="232" fill="#94A3B8" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">single PM brain + API-only runtime + project-scoped state transitions</text>
+
+  <rect x="732" y="274" width="348" height="172" rx="20" fill="rgba(6,78,59,0.4)" stroke="#34D399" stroke-width="1.8"/>
+  <text x="760" y="316" fill="#ECFDF5" font-size="26" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">PM Runtime API</text>
+  <text x="760" y="348" fill="#A7F3D0" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">REST / service boundary / FSM transition guard</text>
+  <text x="760" y="370" fill="#A7F3D0" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">all workers, daemon, WebUI talk here</text>
+  <text x="760" y="392" fill="#A7F3D0" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">no module writes SQLite directly</text>
+
+  <rect x="1112" y="274" width="196" height="172" rx="20" fill="rgba(76,29,149,0.4)" stroke="#A78BFA" stroke-width="1.8"/>
+  <text x="1140" y="316" fill="#F5F3FF" font-size="26" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">SQLite</text>
+  <text x="1140" y="348" fill="#DDD6FE" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">SSoT</text>
+  <text x="1140" y="370" fill="#DDD6FE" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">tasks · runs · reports</text>
+  <text x="1140" y="392" fill="#DDD6FE" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">artifacts · policies</text>
+
+  <rect x="836" y="542" width="236" height="172" rx="20" fill="rgba(6,78,59,0.4)" stroke="#34D399" stroke-width="1.8"/>
+  <text x="866" y="584" fill="#ECFDF5" font-size="26" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Daemon</text>
+  <text x="866" y="616" fill="#A7F3D0" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">tick loop</text>
+  <text x="866" y="638" fill="#A7F3D0" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">claim / dispatch / review / closeout</text>
+  <text x="866" y="660" fill="#A7F3D0" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">through Runtime API only</text>
+
+  <rect x="1126" y="542" width="182" height="172" rx="20" fill="rgba(120,53,15,0.3)" stroke="#FBBF24" stroke-width="1.8"/>
+  <text x="1154" y="584" fill="#FFFBEB" font-size="26" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">WebUI</text>
+  <text x="1154" y="616" fill="#FDE68A" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">read-only ops view</text>
+  <text x="1154" y="638" fill="#FDE68A" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">SSE / status board</text>
+  <text x="1154" y="660" fill="#FDE68A" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">proof gallery</text>
+
+  <rect x="732" y="780" width="392" height="132" rx="20" fill="rgba(30,41,59,0.5)" stroke="#94A3B8" stroke-width="1.8"/>
+  <text x="760" y="822" fill="#F8FAFC" font-size="24" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Proof + Review Plane</text>
+  <text x="760" y="852" fill="#CBD5E1" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">reports / artifacts / review bridge / audit evidence</text>
+  <text x="760" y="874" fill="#CBD5E1" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">human-readable messages, full trace kept in runtime proof</text>
+
+  <rect x="1144" y="780" width="164" height="132" rx="20" fill="rgba(120,53,15,0.3)" stroke="#FBBF24" stroke-width="1.8"/>
+  <text x="1170" y="822" fill="#FFFBEB" font-size="24" font-weight="700" font-family="'Inter', 'Segoe UI', Arial, sans-serif">Cron Registry</text>
+  <text x="1170" y="852" fill="#FDE68A" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">project_cronjobs</text>
+  <text x="1170" y="874" fill="#FDE68A" font-size="13" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">eligible only</text>
+
+  <rect x="144" y="942" width="1320" height="64" rx="18" fill="#07111B" stroke="#1E293B"/>
+  <circle cx="176" cy="974" r="8" fill="#22D3EE"/>
+  <text x="194" y="979" fill="#DDEEFF" font-size="14" font-family="'JetBrains Mono', 'DejaVu Sans Mono', monospace">Control-plane law: Telegram / Daemon / WebUI / Cron adapter never bypass the Runtime API boundary to touch SQLite directly.</text>
+</svg>
