@@ -209,7 +209,7 @@ Workers POST structured proof to `POST /api/v1/runtime/tasks/:taskId/proof`:
 
 ## Product Flow
 
-![Nexus Dispatch product flow — create task, dispatch, worker execution, proof, review, verified delivery](./docs/assets/nexus-product-flow-en.png)
+![Nexus Dispatch product flow — create task, dispatch, worker execution, proof, review, verified delivery](./docs/assets/nexus-product-flow-r24-cliproxy.png)
 
 1. **Create task** — PM defines lane, priority, dependencies, and review policy.
 2. **Dispatch** — PM Brain resolves DAG order and routes the run to the right worker lane.
@@ -221,7 +221,7 @@ Workers POST structured proof to `POST /api/v1/runtime/tasks/:taskId/proof`:
 
 ## Architecture
 
-![Nexus Dispatch architecture — single PM brain, multi-agent fleet, API control plane, proof closed loop](./docs/assets/nexus-architecture-en.png)
+![Nexus Dispatch architecture — single PM brain, multi-agent fleet, API control plane, proof closed loop](./docs/assets/nexus-architecture-r24-cliproxy.png)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
