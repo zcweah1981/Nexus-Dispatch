@@ -1,10 +1,26 @@
-# Nexus Dispatch
+<div align="center">
+  <img src="./docs/assets/nexus-hero.svg" alt="Nexus Dispatch" width="720" />
+  <h1>Nexus Dispatch</h1>
+  <p><strong>一個大腦。多雙手。零信任。</strong></p>
+  <p>
+    <a href="./README.md">English</a> ·
+    <a href="./README.zh-CN.md">简体中文</a>
+  </p>
+</div>
 
-**[English](./README.md)** | [**简体中文**](./README.zh-CN.md) | 繁體中文
+---
 
-![Nexus Dispatch hero](./docs/assets/nexus-hero.png)
+<p align="center">
+  <img src="https://img.shields.io/badge/Runtime-API_only-blue" alt="API-only Runtime" />
+  <img src="https://img.shields.io/badge/Storage-SQLite_SSoT-green" alt="SQLite SSoT" />
+  <img src="https://img.shields.io/badge/Agents-Multi--Agent_Control_Plane-purple" alt="Multi-Agent Control Plane" />
+  <img src="https://img.shields.io/badge/Security-Zero_Trust_Proof-red" alt="Zero-Trust Proof" />
+  <img src="https://img.shields.io/badge/Brain-PM_Daemon-orange" alt="PM Daemon" />
+  <img src="https://img.shields.io/badge/Interface-Telegram_·_WebUI-teal" alt="Telegram / WebUI" />
+  <img src="https://img.shields.io/badge/Scheduler-Cron_Adapter-yellow" alt="Cron Adapter" />
+</p>
 
-**一個大腦。多雙手。零信任。**
+---
 
 > ⚠️ **繁體中文版本目前為佔位入口頁面。**
 >
@@ -22,12 +38,13 @@ Nexus Dispatch 是一個多 Agent 編排控制平面——用單一 PM 大腦來
 
 ### 核心能力
 
-- **狀態機驅動的任務生命週期** — `created → dispatched → running → completion_pending → review_pending → completed`
-- **DAG 依賴解析** — 拓撲排序 + 環路偵測
-- **動態審核門控** — `review_policy` 控制高風險任務審核流程
-- **API-only 邊界** — 所有狀態流轉走 REST API
-- **Cron Registry 適配器隔離** — 嚴格的關注點分離
-- **Telegram 通知（每 Agent 獨立 Bot）** — Daemon 不代發
+- **🔄 狀態機驅動的任務生命週期** — `created → dispatched → running → completion_pending → review_pending → completed`
+- **🔗 DAG 依賴解析** — 拓撲排序 + 環路偵測
+- **🛡️ 動態審核門控** — `review_policy` 控制高風險任務審核流程
+- **📋 藍圖 & 階段管理** — 凍結、解凍、推進里程碑
+- **⏰ Cron Registry 適配器隔離** — 嚴格的關注點分離
+- **📨 Telegram 通知（每 Agent 獨立 Bot）** — Daemon 不代發
+- **📊 WebUI 可觀測性** — 輕量儀表盤，只讀不寫
 
 ## 快速開始
 
