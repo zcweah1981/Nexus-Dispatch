@@ -1,9 +1,8 @@
 <div align="center">
   <h1>
-    <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" height="56" />
+    <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" height="56" style="vertical-align: middle;" />
     Nexus Dispatch
   </h1>
-  <img src="./docs/assets/nexus-banner-user-source.jpg" alt="Nexus Dispatch — PM-driven control plane for long-running multi-agent work" width="720" />
   <p><strong>PM-driven multi-agent control plane.</strong></p>
   <p>
     <a href="./README.md">English</a> ·
@@ -20,10 +19,13 @@
   <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
 </p>
 
+<p align="center">
+  <img src="./docs/assets/banner.png" alt="Nexus Dispatch — PM-driven control plane for long-running multi-agent work" width="720" />
+</p>
 
 ---
 
-> 一个 PM 大脑中枢向异构 AI Agent 派发任务，通过状态机运行时追踪每次状态流转，并以结构化证据门控验证完成——全程无人值守、全程可观察、零信任闭环。
+> 一个 PM 大脑中枢向异构 AI Agent 派发任务，通过状态机运行时追踪每次状态流转，并以结构化证据门控验证完成——全程无人值守、全程可观察、可审计。
 
 ---
 
@@ -267,7 +269,7 @@ Worker 向 `POST /api/v1/runtime/tasks/:taskId/proof` 提交结构化证据：
 | [docs/install.zh-TW.md](./docs/install.zh-TW.md) | 繁體中文部署導覽 |
 | [docs/TRILINGUAL-STRATEGY.md](./docs/TRILINGUAL-STRATEGY.md) | 三语文档策略与命名规则 |
 | [docs/v8/](./docs/v8/) | Runtime Proof 文档、API 契约、Schema 规范 |
-| [docs/assets/](./docs/assets/) | 产品视觉资产：logo、Hero、工作流全景、架构图 |
+| [docs/assets/](./docs/assets/) | 产品视觉资产：logo、banner、工作流全景、架构图 |
 
 ---
 

@@ -1,9 +1,8 @@
 <div align="center">
   <h1>
-    <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" height="56" />
+    <img src="./docs/assets/nexus-logo.png" alt="Nexus Dispatch logo" height="56" style="vertical-align: middle;" />
     Nexus Dispatch
   </h1>
-  <img src="./docs/assets/nexus-banner-user-source.jpg" alt="Nexus Dispatch — PM-driven control plane for long-running multi-agent work" width="720" />
   <p><strong>PM-driven multi-agent control plane.</strong></p>
   <p>
     <a href="./README.md">English</a> ·
@@ -20,10 +19,13 @@
   <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
 </p>
 
+<p align="center">
+  <img src="./docs/assets/banner.png" alt="Nexus Dispatch — PM-driven control plane for long-running multi-agent work" width="720" />
+</p>
 
 ---
 
-> A single PM brain dispatches work to heterogeneous AI agents, tracks every state transition through a state-machine runtime, and verifies completion with structured proof gates — unattended, observable, zero-trust.
+> A single PM brain dispatches work to heterogeneous AI agents, tracks every state transition through a state-machine runtime, and verifies completion with structured proof gates — unattended, observable, and auditable.
 
 ---
 
@@ -267,7 +269,7 @@ Workers POST structured proof to `POST /api/v1/runtime/tasks/:taskId/proof`:
 | [docs/install.zh-TW.md](./docs/install.zh-TW.md) | 繁體中文部署導覽 |
 | [docs/TRILINGUAL-STRATEGY.md](./docs/TRILINGUAL-STRATEGY.md) | Trilingual docs strategy and naming rules |
 | [docs/v8/](./docs/v8/) | Runtime proof, API contracts, schema specs |
-| [docs/assets/](./docs/assets/) | Product visuals: logo, hero, flow, architecture |
+| [docs/assets/](./docs/assets/) | Product visuals: logo, banner, flow, architecture |
 
 ---
 
