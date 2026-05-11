@@ -12,11 +12,11 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Runtime-API_控制平面-315A9E?labelColor=0B111E" alt="API 控制平面" />
-  <img src="https://img.shields.io/badge/Tasks-长任务_无人值守-315A9E?labelColor=0B111E" alt="长任务无人值守" />
-  <img src="https://img.shields.io/badge/Delivery-证据闭环-315A9E?labelColor=0B111E" alt="证据闭环" />
-  <img src="https://img.shields.io/badge/Fleet-多Agent-315A9E?labelColor=0B111E" alt="多 Agent" />
-  <img src="https://img.shields.io/badge/License-MIT-315A9E?labelColor=0B111E" alt="License: MIT" />
+  <img src="https://img.shields.io/badge/运行时-API_控制平面-315A9E?labelColor=0B111E" alt="API 控制平面" />
+  <img src="https://img.shields.io/badge/任务-长任务_无人值守-315A9E?labelColor=0B111E" alt="长任务无人值守" />
+  <img src="https://img.shields.io/badge/交付-证据闭环-315A9E?labelColor=0B111E" alt="证据闭环" />
+  <img src="https://img.shields.io/badge/队列-多Agent-315A9E?labelColor=0B111E" alt="多 Agent" />
+  <img src="https://img.shields.io/badge/许可-MIT-315A9E?labelColor=0B111E" alt="License: MIT" />
 </p>
 
 <p align="center">
