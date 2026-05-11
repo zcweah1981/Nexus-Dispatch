@@ -215,7 +215,7 @@ Worker 向 `POST /api/v1/runtime/tasks/:taskId/proof` 提交結構化證據：
 
 ## 工作流全景
 
-![Nexus Dispatch 工作流全景 — 建立任務、派發執行、Worker 執行、Proof 與交付物、審核與驗證交付](./docs/assets/nexus-product-flow-r24-cliproxy.png)
+![Nexus Dispatch 工作流全景 — 建立任務、派發執行、Worker 執行、Proof 與交付物、審核與驗證交付](./docs/assets/nexus-product-flow-approved.jpg)
 
 1. **建立任務** —— PM 定義泳道、優先級、依賴關係與審核策略。
 2. **派發執行** —— 大腦中樞解析 DAG 順序，並把 Run 路由到正確的 Worker 泳道。
@@ -227,7 +227,7 @@ Worker 向 `POST /api/v1/runtime/tasks/:taskId/proof` 提交結構化證據：
 
 ## 架構
 
-![Nexus Dispatch 架構 — 單一 PM 大腦、多 Agent 協作、API 控制平面、證據閉環](./docs/assets/nexus-architecture-r24-cliproxy.png)
+![Nexus Dispatch 架構 — 單一 PM 大腦、多 Agent 協作、API 控制平面、證據閉環](./docs/assets/nexus-architecture-approved.jpg)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
