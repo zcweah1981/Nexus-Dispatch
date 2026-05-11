@@ -45,7 +45,7 @@
 ## 它做什么
 
 <p align="center">
-  <img src="./docs/assets/hero.png" alt="Nexus Dispatch — 派发、追踪并验证多 Agent 工作" width="100%" />
+  <img src="./docs/assets/hero-zh-CN.png" alt="Nexus Dispatch — 派发、追踪并验证多 Agent 工作" width="100%" />
 </p>
 
 | 能力 | 结果 | 机制 |
@@ -166,7 +166,7 @@ Worker 通过简单的 HTTP 契约与 Nexus Dispatch 交互。无需 SDK。
 
 ## 工作流全景
 
-![Nexus Dispatch 工作流全景 — 创建任务、派发执行、Worker 执行、Proof 与交付物、审核与验证交付](./docs/assets/flow.png)
+![Nexus Dispatch 工作流全景 — 创建任务、派发执行、Worker 执行、Proof 与交付物、审核与验证交付](./docs/assets/flow-zh-CN.png)
 
 1. **创建任务** — PM 定义泳道、优先级、依赖关系与审核策略。
 2. **派发执行** — PM 大脑解析 DAG 顺序，并把 Run 路由到正确的 Worker 泳道。
@@ -178,7 +178,7 @@ Worker 通过简单的 HTTP 契约与 Nexus Dispatch 交互。无需 SDK。
 
 ## 架构
 
-![Nexus Dispatch 架构 — 单一 PM 大脑、多 Agent 协作、API 控制平面、证据闭环](./docs/assets/architecture.png)
+![Nexus Dispatch 架构 — 单一 PM 大脑、多 Agent 协作、API 控制平面、证据闭环](./docs/assets/architecture-zh-CN.png)
 
 核心不变量：
 
