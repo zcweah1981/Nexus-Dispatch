@@ -69,4 +69,4 @@ Nexus Dispatch is a single-PM-brain control plane for long-running multi-agent w
 - `data/nexus.db` and `prisma/data/nexus.db` are not public integration surfaces.
 - New V8 flows should use Prisma Repository classes behind the Runtime API, not legacy DAL calls.
 - Cron registry rows describe project policy; they do not imply that Hermes cronjobs were started or stopped.
-- Public README links should point to user-facing operation docs. Engineering proofs remain under `docs/v8/` and are not part of the public documentation table.
+- Public README links should point to user-facing operation docs. Engineering proofs and local proof artifacts must stay outside the public repository under `/root/.hermes/projects/nexus-dispatch/docs/proofs/`; public-repo proof paths such as `docs/v8/`, `tmp/guide-proof/`, and `docs/assets/cliproxy-test/` are ignored and must not be reintroduced.

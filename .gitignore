@@ -42,6 +42,9 @@ prisma/data/
 proofs/
 .hermes/proofs/
 artifacts/
+docs/v8/
+docs/assets/cliproxy-test/
+tmp/guide-proof/
 report_*.json
 proof_*.json
 *_proof.json
@@ -50,8 +53,8 @@ payload.json
 runtime-proof*.json
 *.proof.json
 
-# Cliproxy API response artifacts (base64 image data, not source)
-docs/assets/cliproxy-test/*.json
+# Internal proof/audit/runtime artifacts belong in Hermes governance docs:
+# /root/.hermes/projects/nexus-dispatch/docs/proofs/
 
 # Logs / temp
 logs/

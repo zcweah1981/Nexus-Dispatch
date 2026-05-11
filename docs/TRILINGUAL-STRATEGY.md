@@ -18,7 +18,7 @@
 | `README.zh-TW.md` | 项目根目录 | 繁體中文 | ⚠️ 占位入口 (58 行)，明确标注「翻譯規劃中」 |
 | `docs/install.md` | docs/ | English | ✅ 完整 (438 行)，含 12 个章节 |
 | `docs/guides/` | docs/guides/ | — | ❌ 空目录，无任何文件 |
-| `docs/v8/` (50+ 文件) | docs/v8/ | 中英混合 | 🔒 内部 proof/contract 文档，不纳入三语化范围 |
+| 内部 proof/contract 文档 | `/root/.hermes/projects/nexus-dispatch/docs/proofs/` | 中英混合 | 🔒 不属于 public repo；禁止回写到 `docs/v8/` |
 | `docs/assets/` | docs/assets/ | 视觉资源 | ✅ 无需翻译 |
 
 ### 1.2 现有语言切换状态
@@ -33,7 +33,7 @@
 1. README 三语入口已建立，但 zh-TW 版本仅为占位页
 2. `docs/install.md` 是唯一面向用户的指南文档，目前仅英文
 3. `docs/guides/` 目录已创建但为空——等待后续教程填充
-4. `docs/v8/` 全部是内部开发 proof/contract 文档，按治理法则归研发流程管理，不属于用户文档
+4. 内部开发 proof/contract 文档按治理法则归研发流程管理，不属于用户文档；统一存放在 `/root/.hermes/projects/nexus-dispatch/docs/proofs/`，禁止回写到 public repo 的 `docs/v8/`、`tmp/guide-proof/` 或 `docs/assets/cliproxy-test/`
 
 ---
 
@@ -77,8 +77,9 @@ Nexus-Dispatch/
 │   │   ├── worker-integration.md
 │   │   ├── worker-integration.zh-CN.md
 │   │   └── worker-integration.zh-TW.md
-│   ├── assets/                  # 视觉资源 (不翻译)
-│   └── v8/                      # 内部开发文档 (不翻译)
+│   └── assets/                  # 视觉资源 (不翻译)
+# Internal proof docs live outside this public repo:
+# /root/.hermes/projects/nexus-dispatch/docs/proofs/
 ```
 
 ---
@@ -164,7 +165,7 @@ README 使用 `<div align="center">` 居中布局，保持与当前一致：
 
 | 文档 | 原因 |
 | --- | --- |
-| `docs/v8/*` (50+ 文件) | 内部开发 proof/contract/spec 文档，属于研发流程产物，按治理法则归 PM/Daemon 管理，不对最终用户暴露 |
+| 内部 proof/contract/spec 文档 | 属于研发流程产物，按治理法则归 PM/Daemon 管理，不对最终用户暴露；统一存放到 `/root/.hermes/projects/nexus-dispatch/docs/proofs/`，不得回写 public repo 的 `docs/v8/` |
 | `docs/assets/*` | 视觉资源文件 (SVG/PNG)，无文本内容需要翻译 |
 | `README.md` | 英文版已完整，无需修改 |
 | `README.zh-CN.md` | 简体中文版已完整，无需修改 |
