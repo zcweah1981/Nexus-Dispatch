@@ -4,12 +4,13 @@
  * AC: FleetRadar Agent 状态实时更新
  *
  * Data flow:
- *  1. On mount, fetches all agents from /api/v1/agents
+ *  1. On mount, fetches project-scoped agents from V8 Runtime API
  *  2. Subscribes to SSE via useSSE hook
  *  3. On agent_registered events, upserts agent into the table
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect } from 'react';
+import { PROJECT_ID, runtimeApi } from '../apiClient';
 import { useSSE } from '../hooks/useSSE';
 
 // ─── Types ─────────────────────────────────────────────────────────
@@ -17,7 +18,7 @@ import { useSSE } from '../hooks/useSSE';
 interface Agent {
   agent_id: string;
   lane: string;
-  endpoint?: string;
+  endpoint_display_ref?: string | null;
   dialect?: string;
   status: 'online' | 'offline';
   last_heartbeat?: string | null;
@@ -60,9 +61,7 @@ const FleetRadar: React.FC = () => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch('/api/v1/agents');
-        if (!res.ok) throw new Error(`API returned ${res.status}`);
-        const data = await res.json();
+        const data = await runtimeApi.listAgents(PROJECT_ID);
         if (!cancelled) {
           setAgents(data.agents || []);
           setLoading(false);
@@ -83,14 +82,14 @@ const FleetRadar: React.FC = () => {
     const event = sse.lastEvent;
 
     if (event.type === 'agent_registered') {
-      const { agent_id, lane, status, last_heartbeat, endpoint, dialect } = event.data;
+      const { agent_id, lane, status, last_heartbeat, endpoint_display_ref, dialect } = event.data;
       setAgents((prev) => {
         // Upsert: if agent_id already exists, update; otherwise add
         const idx = prev.findIndex((a) => a.agent_id === agent_id);
         const updatedAgent: Agent = {
           agent_id,
           lane,
-          endpoint,
+          endpoint_display_ref,
           dialect,
           status: status || 'online',
           last_heartbeat,
@@ -172,7 +171,7 @@ const FleetRadar: React.FC = () => {
                       {agent.status}
                     </span>
                   </td>
-                  <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400 font-mono truncate max-w-[200px]">{agent.endpoint || '—'}</td>
+                  <td className="px-6 py-4 whitespace-nowrap text-xs text-gray-400 font-mono truncate max-w-[200px]">{agent.endpoint_display_ref || '—'}</td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-400">{timeAgo(agent.last_heartbeat)}</td>
                 </tr>
               ))

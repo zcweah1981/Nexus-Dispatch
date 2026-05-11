@@ -96,10 +96,10 @@ export class AgentRepository {
     });
   }
 
-  async listAgents(projectId: string, filters?: { lane?: string; status?: string }) {
+  async listAgents(projectId: string, filters?: { lane?: string; status?: string; include_global?: boolean }) {
     return this.prisma.agent.findMany({
       where: {
-        OR: [{ project_id: projectId }, { project_id: null }],
+        ...(filters?.include_global ? { OR: [{ project_id: projectId }, { project_id: null }] } : { project_id: projectId }),
         ...(filters?.lane ? { lane: filters.lane } : {}),
         ...(filters?.status ? { status: filters.status } : {}),
       },
@@ -423,7 +423,7 @@ export function assertV8VisibleLanguage(value: string): V8VisibleLanguage {
   throw new Error(`Invalid visible language: ${value}. Supported values: ${V8_SUPPORTED_VISIBLE_LANGUAGES.join(', ')}`);
 }
 
-function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
+export function parseJsonObject(value: string | null | undefined): Record<string, unknown> {
   if (!value) return {};
   try {
     const parsed = JSON.parse(value);
@@ -570,6 +570,19 @@ export class ProjectCronjobRepository {
 export class ArtifactRepository {
   constructor(private readonly prisma: PrismaClient) {}
 
+  async list(projectId: string, filters?: { task_id?: string; run_id?: string; artifact_type?: string; limit?: number }) {
+    return this.prisma.artifact.findMany({
+      where: {
+        project_id: projectId,
+        ...(filters?.task_id ? { task_id: filters.task_id } : {}),
+        ...(filters?.run_id ? { run_id: filters.run_id } : {}),
+        ...(filters?.artifact_type ? { artifact_type: filters.artifact_type } : {}),
+      },
+      orderBy: { created_at: 'desc' },
+      take: Math.max(1, Math.min(filters?.limit ?? 50, 200)),
+    });
+  }
+
   async create(projectId: string, input: ArtifactCreateInput) {
     const run = await this.prisma.run.findFirst({
       where: { run_id: input.run_id, project_id: projectId },
@@ -705,7 +718,7 @@ export class ReportRepository {
     return this.prisma.report.findFirst({ where: { id: reportId, project_id: projectId } });
   }
 
-  async list(projectId: string, filters?: { status?: string; message_type?: string; task_id?: string; dedupe_key?: string }) {
+  async list(projectId: string, filters?: { status?: string; message_type?: string; task_id?: string; dedupe_key?: string; limit?: number }) {
     return this.prisma.report.findMany({
       where: {
         project_id: projectId,
@@ -714,7 +727,8 @@ export class ReportRepository {
         ...(filters?.task_id ? { task_id: filters.task_id } : {}),
         ...(filters?.dedupe_key ? { dedupe_key: filters.dedupe_key } : {}),
       },
-      orderBy: { created_at: 'asc' },
+      orderBy: { created_at: 'desc' },
+      take: Math.max(1, Math.min(filters?.limit ?? 50, 200)),
     });
   }
 

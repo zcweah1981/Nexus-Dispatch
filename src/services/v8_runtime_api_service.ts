@@ -12,6 +12,7 @@ import {
   ProjectRepository,
   ProjectSettingsRepository,
   V8_SUPPORTED_VISIBLE_LANGUAGES,
+  parseJsonObject,
   ReportCreateInput,
   ReportRepository,
   RunCreateInput,
@@ -41,6 +42,61 @@ function asNotFound(error: unknown, message: string): never {
     throw new V8RuntimeApiError(error.statusCode, error.code, error.message, error.details);
   }
   throw new V8RuntimeApiError(404, 'NOT_FOUND', message, { cause: error instanceof Error ? error.message : String(error) });
+}
+
+function safeJson(value: string | null | undefined): Record<string, unknown> {
+  return parseJsonObject(value);
+}
+
+function clampLimit(value?: number) {
+  return Math.max(1, Math.min(value ?? 50, 200));
+}
+
+function redactText(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  return String(value)
+    .replace(/Bearer\s+[^\s;]+/gi, 'Bearer [REDACTED]')
+    .replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED]')
+    .replace(/ghp_[A-Za-z0-9_]+/g, '[REDACTED]')
+    .replace(/xoxb-[A-Za-z0-9-]+/g, '[REDACTED]')
+    .replace(/\b\d{5,}:[A-Za-z0-9_-]+\b/g, '[REDACTED]')
+    .replace(/-100\d{6,}/g, '[REDACTED]');
+}
+
+function endpointRef(endpoint: string | null | undefined) {
+  const redacted = redactText(endpoint);
+  if (!redacted) return null;
+  try {
+    const url = new URL(redacted);
+    return `${url.protocol}//${url.host}${url.pathname}`;
+  } catch {
+    return redacted.length > 96 ? `${redacted.slice(0, 48)}…${redacted.slice(-16)}` : redacted;
+  }
+}
+
+function countBy<T extends Record<string, any>>(items: T[], key: keyof T) {
+  return items.reduce<Record<string, number>>((acc, item) => {
+    const value = String(item[key] ?? 'unknown');
+    acc[value] = (acc[value] ?? 0) + 1;
+    return acc;
+  }, {});
+}
+
+function redactProjectConfig(config: Record<string, unknown>) {
+  const safeKeys = ['visible_language', 'repo_ref', 'public_docs_ref', 'governance_ref', 'dispatch_policy', 'review_policy', 'languages'];
+  const result: Record<string, unknown> = {};
+  for (const key of safeKeys) {
+    if (config[key] !== undefined) result[key] = redactText(config[key]);
+  }
+  return result;
+}
+
+function safeProofSummary(...values: unknown[]) {
+  for (const value of values) {
+    const redacted = redactText(value);
+    if (redacted && redacted.trim()) return redacted.slice(0, 240);
+  }
+  return 'Proof 已存系统';
 }
 
 export class V8RuntimeApiService {
@@ -119,9 +175,20 @@ export class V8RuntimeApiService {
     }
   }
 
-  async listAgents(projectId: string, filters?: { lane?: string; status?: string }) {
+  async listAgents(projectId: string, filters?: { lane?: string; status?: string; include_global?: boolean }) {
     await this.getProject(projectId);
-    return this.agents.listAgents(projectId, filters);
+    const agents = await this.agents.listAgents(projectId, filters);
+    return agents.map((agent) => ({
+      id: agent.id,
+      project_id: agent.project_id,
+      agent_id: agent.agent_id,
+      lane: agent.lane,
+      dialect: agent.dialect,
+      status: agent.status,
+      endpoint_display_ref: endpointRef(agent.endpoint),
+      last_heartbeat: agent.last_heartbeat,
+      created_at: agent.created_at,
+    }));
   }
 
   async freezeBlueprint(input: { project_id: string; blueprint: unknown }) {
@@ -205,6 +272,186 @@ export class V8RuntimeApiService {
     } catch (error) {
       return asNotFound(error, `Task '${taskId}' not found in project '${projectId}'`);
     }
+  }
+
+  async listTasksForWebUI(projectId: string, filters?: { status?: string; lane_required?: string; task_group_id?: string; include_graph?: boolean; limit?: number }) {
+    await this.getProject(projectId);
+    const tasks = await this.prisma.task.findMany({
+      where: {
+        project_id: projectId,
+        ...(filters?.status ? { status: filters.status } : {}),
+        ...(filters?.lane_required ? { lane_required: filters.lane_required } : {}),
+        ...(filters?.task_group_id ? { task_group_id: filters.task_group_id } : {}),
+      },
+      orderBy: [{ created_at: 'asc' }, { id: 'asc' }],
+      take: clampLimit(filters?.limit),
+      include: {
+        taskGroup: { select: { id: true, group_id: true, name: true, status: true, ext_meta: true } },
+        runs: { orderBy: { started_at: 'desc' }, take: 1, select: { run_id: true, agent_id: true, status: true, result_summary: true, started_at: true, ended_at: true } },
+      },
+    });
+    const deps = filters?.include_graph
+      ? await this.prisma.taskDependency.findMany({ where: { project_id: projectId }, select: { task_id: true, depends_on_id: true, dependency_type: true } })
+      : [];
+    const depsByTask = new Map<string, typeof deps>();
+    for (const dep of deps) depsByTask.set(dep.task_id, [...(depsByTask.get(dep.task_id) ?? []), dep]);
+    return tasks.map((task) => {
+      const extMeta = safeJson(task.ext_meta);
+      const groupMeta = safeJson(task.taskGroup?.ext_meta);
+      return {
+        id: task.id,
+        project_id: task.project_id,
+        title: task.title,
+        objective: task.objective,
+        lane_required: task.lane_required,
+        status: task.status,
+        task_group_id: task.task_group_id,
+        group_id: task.taskGroup?.group_id ?? null,
+        phase_id: groupMeta.phase_id ?? extMeta.phase_id ?? null,
+        reviewer: task.reviewer,
+        acceptance_mode: task.acceptance_mode,
+        retry_count: task.retry_count,
+        max_retries: task.max_retries,
+        proof_summary: safeProofSummary(extMeta.proof_summary, task.runs[0]?.result_summary),
+        latest_run: task.runs[0] ?? null,
+        dependencies: filters?.include_graph ? (depsByTask.get(task.id) ?? []) : undefined,
+        created_at: task.created_at,
+        updated_at: task.updated_at,
+      };
+    });
+  }
+
+  async listTaskGroupsForWebUI(projectId: string, options?: { include_tasks?: boolean; limit?: number }) {
+    await this.getProject(projectId);
+    const groups = await this.prisma.taskGroup.findMany({
+      where: { project_id: projectId },
+      orderBy: [{ priority: 'asc' }, { created_at: 'asc' }],
+      take: clampLimit(options?.limit),
+      include: options?.include_tasks ? { tasks: { select: { id: true, title: true, status: true, lane_required: true } } } : undefined,
+    });
+    return groups.map((group) => ({
+      id: group.id,
+      project_id: group.project_id,
+      group_id: group.group_id,
+      name: group.name,
+      description: group.description,
+      status: group.status,
+      priority: group.priority,
+      phase_id: safeJson(group.ext_meta).phase_id ?? null,
+      created_at: group.created_at,
+      updated_at: group.updated_at,
+      ...(options?.include_tasks ? { tasks: (group as any).tasks } : {}),
+    }));
+  }
+
+  async getProjectSummary(projectId: string) {
+    const project = await this.getProject(projectId);
+    const [tasks, runs, reports, activeGroup] = await Promise.all([
+      this.prisma.task.findMany({ where: { project_id: projectId }, select: { status: true } }),
+      this.prisma.run.findMany({ where: { project_id: projectId }, select: { status: true } }),
+      this.prisma.report.findMany({ where: { project_id: projectId }, select: { status: true } }),
+      this.prisma.taskGroup.findFirst({ where: { project_id: projectId, status: { in: ['active', 'running'] } }, orderBy: { created_at: 'asc' } }),
+    ]);
+    const taskCounts = countBy(tasks, 'status');
+    return {
+      project: { id: project.id, name: project.name, status: project.status, created_at: project.created_at },
+      lifecycle_stage: activeGroup ? 'dispatching' : (taskCounts.completed && taskCounts.completed === tasks.length ? 'completed' : 'created'),
+      active_group: activeGroup ? { id: activeGroup.id, group_id: activeGroup.group_id, name: activeGroup.name, status: activeGroup.status } : null,
+      task_counts_by_status: taskCounts,
+      run_counts_by_status: countBy(runs, 'status'),
+      report_counts_by_status: countBy(reports, 'status'),
+      risk_flags: { blocked: taskCounts.blocked ?? 0, dead_letter: taskCounts.dead_letter ?? 0 },
+      next_responsible: taskCounts.review_pending ? 'reviewer' : (taskCounts.running || taskCounts.dispatched ? 'worker' : 'pm'),
+      health: { api: 'ok', data_source: 'runtime_api', project_scoped: true },
+    };
+  }
+
+  async getDispatchLive(projectId: string, options?: { limit?: number }) {
+    await this.getProject(projectId);
+    const runs = await this.prisma.run.findMany({
+      where: { project_id: projectId },
+      orderBy: { started_at: 'desc' },
+      take: clampLimit(options?.limit),
+      select: { run_id: true, project_id: true, task_id: true, agent_id: true, status: true, result_summary: true, started_at: true, ended_at: true },
+    });
+    return { project_id: projectId, runs, active_runs: runs.filter((run) => ['created', 'running'].includes(run.status)), queue_depth: await this.prisma.task.count({ where: { project_id: projectId, status: { in: ['created', 'retry_ready'] } } }) };
+  }
+
+  async listReportsForWebUI(projectId: string, filters?: { message_type?: string; status?: string; task_id?: string; limit?: number }) {
+    await this.getProject(projectId);
+    const reports = await this.reports.list(projectId, filters);
+    return reports.map((report) => ({
+      id: report.id,
+      project_id: report.project_id,
+      task_id: report.task_id,
+      run_id: report.run_id,
+      message_type: report.message_type,
+      status: report.status,
+      summary: safeProofSummary(report.summary),
+      created_at: report.created_at,
+      updated_at: report.updated_at,
+    }));
+  }
+
+  async listArtifactsForWebUI(projectId: string, filters?: { task_id?: string; run_id?: string; artifact_type?: string; limit?: number }) {
+    await this.getProject(projectId);
+    const artifacts = await this.artifacts.list(projectId, filters);
+    return artifacts.map((artifact) => ({
+      id: artifact.id,
+      project_id: artifact.project_id,
+      task_id: artifact.task_id,
+      run_id: artifact.run_id,
+      artifact_type: artifact.artifact_type,
+      path: redactText(artifact.path),
+      proof_summary: 'Proof 已存系统',
+      created_at: artifact.created_at,
+    }));
+  }
+
+  async getProjectSettingsForWebUI(projectId: string) {
+    const project = await this.getProject(projectId);
+    const config = safeJson(project.channel_config);
+    return {
+      project_id: projectId,
+      project: { id: project.id, name: project.name, status: project.status, created_at: project.created_at },
+      visible_language: await this.settings.getVisibleLanguage(projectId),
+      supported_visible_languages: V8_SUPPORTED_VISIBLE_LANGUAGES,
+      config: redactProjectConfig(config),
+      policies: { cron_registry: 'readonly', review_policy: 'runtime_api', dispatch_policy: 'runtime_api' },
+    };
+  }
+
+  async getProjectDirectoriesForWebUI(projectId: string) {
+    const project = await this.getProject(projectId);
+    const config = safeJson(project.channel_config);
+    const dirs = safeJson(JSON.stringify(config.directories ?? {}));
+    return {
+      project_id: projectId,
+      directories: Object.fromEntries(Object.entries(dirs).map(([key, value]) => [key, { ref: redactText(value), access: 'api-side-reference-only' }])),
+      leak_summary: { direct_webui_filesystem_access: false, raw_private_paths_exposed: false },
+    };
+  }
+
+  async getObservabilityForWebUI(projectId: string) {
+    await this.getProject(projectId);
+    const [queueDepth, blocked, deadLetter, failedRuns, agents] = await Promise.all([
+      this.prisma.task.count({ where: { project_id: projectId, status: { in: ['created', 'retry_ready'] } } }),
+      this.prisma.task.count({ where: { project_id: projectId, status: 'blocked' } }),
+      this.prisma.task.count({ where: { project_id: projectId, status: 'dead_letter' } }),
+      this.prisma.run.count({ where: { project_id: projectId, status: { in: ['failed', 'error'] } } }),
+      this.agents.listAgents(projectId),
+    ]);
+    return {
+      project_id: projectId,
+      api: { status: 'ok' },
+      daemon: { status: 'unavailable', fallback: 'demo-only/unavailable until daemon heartbeat endpoint lands' },
+      queue_depth: queueDepth,
+      failed_runs: failedRuns,
+      blocked_tasks: blocked,
+      dead_letter_tasks: deadLetter,
+      worker_heartbeat: { online: agents.filter((agent) => agent.status === 'online').length, total: agents.length },
+      db_lock_warning: false,
+    };
   }
 
   async recoverTimeouts(projectId: string, timeoutMinutes: number) {

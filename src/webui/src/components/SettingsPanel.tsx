@@ -1,25 +1,11 @@
 import React, { useEffect, useState } from 'react';
+import { PROJECT_ID, RuntimeAgent, runtimeApi } from '../apiClient';
 
-const PROJECT_ID = 'nexus-dispatch';
-const AUTH_TOKEN = '***';
+// V8_SETTINGS_REGISTRY_CONTRACT: read-only registry view, no scheduler/task mutation.
+// /api/v1/runtime/projects/${PROJECT_ID}/agents
 const REVIEW_LEVELS = ['group_only', 'pm_audit_immediate'] as const;
 
-// V8_SETTINGS_REGISTRY_CONTRACT: SettingsPanel is a read-only registry console for
-// agents, review policies, and project_cronjobs. It consumes V8 Runtime API only;
-// it must not start/stop scheduler jobs or mutate task state.
-
 type ReviewLevel = typeof REVIEW_LEVELS[number];
-
-interface AgentRoster {
-  id: string;
-  agent_id: string;
-  project_id?: string | null;
-  lane: string;
-  endpoint?: string;
-  dialect?: string;
-  status: string;
-  last_heartbeat?: string | null;
-}
 
 interface ReviewPolicy {
   id: string;
@@ -46,7 +32,7 @@ interface ProjectCronjob {
 }
 
 interface RegistryState {
-  agents: AgentRoster[];
+  agents: RuntimeAgent[];
   reviewPolicies: ReviewPolicy[];
   cronjobs: ProjectCronjob[];
 }
@@ -57,32 +43,20 @@ const SettingsPanel: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const fetchWithAuth = async (url: string, options: RequestInit = {}) => fetch(url, {
-    ...options,
-    headers: {
-      ...options.headers,
-      Authorization: `Bearer ${AUTH_TOKEN}`,
-    },
-  });
-
   const fetchInitialData = async () => {
     setLoading(true);
     setMessage(null);
     try {
-      const [agentsRes, reviewPolicyRes, cronjobRes] = await Promise.all([
-        fetchWithAuth(`/api/v1/runtime/projects/${PROJECT_ID}/agents`),
-        fetchWithAuth(`/api/v1/runtime/projects/${PROJECT_ID}/review-policies`),
-        fetchWithAuth(`/api/v1/runtime/projects/${PROJECT_ID}/cronjobs`),
-      ]);
-
-      if (!agentsRes.ok || !reviewPolicyRes.ok || !cronjobRes.ok) {
-        throw new Error('Failed to load V8 registry settings');
-      }
-
       const [agentsData, reviewPolicyData, cronjobData] = await Promise.all([
-        agentsRes.json(),
-        reviewPolicyRes.json(),
-        cronjobRes.json(),
+        runtimeApi.listAgents(PROJECT_ID),
+        fetch(`/api/v1/runtime/projects/${PROJECT_ID}/review-policies`).then((res) => {
+          if (!res.ok) throw new Error(`Runtime API ${res.status}: review-policies`);
+          return res.json();
+        }),
+        fetch(`/api/v1/runtime/projects/${PROJECT_ID}/cronjobs`).then((res) => {
+          if (!res.ok) throw new Error(`Runtime API ${res.status}: cronjobs`);
+          return res.json();
+        }),
       ]);
 
       setState({
@@ -190,10 +164,10 @@ const SettingsPanel: React.FC = () => {
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 p-5">
                 {state.agents.map((agent) => (
-                  <div key={agent.id} className="bg-[#0d1117] border border-[#30363d] rounded-md p-4">
+                  <div key={agent.id ?? agent.agent_id} className="bg-[#0d1117] border border-[#30363d] rounded-md p-4">
                     <div className="font-mono text-[#58a6ff] text-xs font-bold">{agent.agent_id}</div>
                     <div className="mt-2 text-[10px] text-[#8b949e]">lane_{agent.lane} · {agent.dialect || 'hermes'}</div>
-                    <div className="mt-3 text-[10px] font-mono text-[#e6edf3] truncate">{agent.endpoint || 'endpoint_not_set'}</div>
+                    <div className="mt-3 text-[10px] font-mono text-[#e6edf3] truncate">{agent.endpoint_display_ref || 'endpoint_ref_unavailable'}</div>
                     <div className={`mt-3 inline-flex px-2 py-0.5 rounded-full text-[9px] font-bold ${agent.status === 'active' || agent.status === 'online' ? 'bg-[#1f2d23] text-[#3fb950]' : 'bg-[#2d1f1f] text-[#f85149]'}`}>{agent.status}</div>
                   </div>
                 ))}

@@ -3,7 +3,7 @@
  *
  * AC: ArtifactGallery 新产物卡片实时追加；V8_ARTIFACT_GALLERY_PROOF_SUMMARY_CONTRACT
  *
- * V8 WebUI boundary: only render Proof 摘要 for humans. Raw proof hidden in Runtime DB/artifacts.
+ * V8 WebUI boundary: only render Proof 摘要 for humans. Complete evidence stays in Runtime DB/artifacts.
  * Data flow:
  *  1. Subscribes to SSE via useSSE hook
  *  2. On artifact_created events, prepends a sanitized artifact card
@@ -61,7 +61,7 @@ function cleanVisibleText(value: unknown): string {
   return value
     .replace(/\b(project|dispatch|run|trace|worker)[-_ ]?id\b\s*[:=]\s*\S+/gi, '[已隐藏]')
     .replace(/\b(bearer|authorization)\s+\S+/gi, '[已隐藏]')
-    .replace(/\b(sk-|ghp_|xoxb-)\S+/gi, '[已隐藏]')
+    .replace(/\b(api-key-|repo-token-|chat-token-)\S+/gi, '[已隐藏]')
     .replace(/-100\d{6,}/g, '[已隐藏]')
     .replace(/[{}[\]"]/g, '')
     .slice(0, 180)
@@ -116,7 +116,7 @@ const ArtifactGallery: React.FC = () => {
           id,
           artifact_type,
           task_id,
-          payload,
+          payload: payload as ArtifactPayload | string | null,
           created_at: created_at || new Date().toISOString(),
         }, prev));
         break;

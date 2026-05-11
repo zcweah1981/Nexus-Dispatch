@@ -90,6 +90,124 @@ export function createApiRouter(authToken: string = 'valid-token', prismaDal?: P
     }
   });
 
+  router.get('/runtime/projects/:projectId/summary', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const summary = await service.getProjectSummary(req.params.projectId as string);
+      return res.status(200).json({ summary });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime project summary');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/tasks', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const tasks = await service.listTasksForWebUI(req.params.projectId as string, {
+        status: req.query.status as string | undefined,
+        lane_required: req.query.lane as string | undefined,
+        task_group_id: req.query.task_group_id as string | undefined,
+        include_graph: req.query.include_graph === 'true',
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+      });
+      return res.status(200).json({ project_id: req.params.projectId, tasks, total: tasks.length });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to list runtime project tasks');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/groups', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const groups = await service.listTaskGroupsForWebUI(req.params.projectId as string, {
+        include_tasks: req.query.include_tasks === 'true',
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+      });
+      return res.status(200).json({ project_id: req.params.projectId, groups, total: groups.length });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to list runtime project groups');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/dispatch/live', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const dispatchLive = await service.getDispatchLive(req.params.projectId as string, { limit: req.query.limit ? Number(req.query.limit) : undefined });
+      return res.status(200).json({ dispatch_live: dispatchLive });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime dispatch live view');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/reports', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const reports = await service.listReportsForWebUI(req.params.projectId as string, {
+        message_type: req.query.message_type as string | undefined,
+        status: req.query.status as string | undefined,
+        task_id: req.query.task_id as string | undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+      });
+      return res.status(200).json({ project_id: req.params.projectId, reports, total: reports.length });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to list runtime project reports');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/artifacts', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const artifacts = await service.listArtifactsForWebUI(req.params.projectId as string, {
+        task_id: req.query.task_id as string | undefined,
+        run_id: req.query.run_id as string | undefined,
+        artifact_type: req.query.artifact_type as string | undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+      });
+      return res.status(200).json({ project_id: req.params.projectId, artifacts, total: artifacts.length });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to list runtime project artifacts');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/settings', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const settings = await service.getProjectSettingsForWebUI(req.params.projectId as string);
+      return res.status(200).json({ settings });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime project settings');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/directories', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const directories = await service.getProjectDirectoriesForWebUI(req.params.projectId as string);
+      return res.status(200).json({ directories });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime project directories');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/observability', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const observability = await service.getObservabilityForWebUI(req.params.projectId as string);
+      return res.status(200).json({ observability });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime project observability');
+    }
+  });
+
   router.get('/runtime/projects/:projectId/settings/visible-language', async (req: Request, res: Response) => {
     const service = runtimeServiceOr503(res);
     if (!service) return;

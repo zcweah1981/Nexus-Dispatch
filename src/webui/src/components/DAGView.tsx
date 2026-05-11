@@ -4,7 +4,7 @@
  * AC: DAGView 节点颜色实时变化并仅展示 V8 状态机状态：灰(created)/蓝(in-progress)/绿(completed)/红(terminal/problem)
  *
  * Data flow:
- *  1. On mount, fetches all tasks from /api/v1/tasks?project_id=... (or all)
+ *  1. On mount, fetches project-scoped tasks from the V8 Runtime API boundary
  *  2. Builds initial nodes from task data
  *  3. Subscribes to SSE via useSSE hook
  *  4. On task_status_updated / task_created events, updates node data in-place
@@ -24,7 +24,8 @@ import ReactFlow, {
   Handle,
   Position,
 } from 'reactflow';
-import { useSSE, SSEEvent } from '../hooks/useSSE';
+import { PROJECT_ID, runtimeApi } from '../apiClient';
+import { useSSE } from '../hooks/useSSE';
 
 // ─── Status → visual mapping ──────────────────────────────────────
 // V8 状态机：只展示 V8 task status；legacy status 由 Runtime API/FSM Controller 迁移后再进入 WebUI。
@@ -292,9 +293,8 @@ const DAGView: React.FC = () => {
   );
 
   const refreshGraphFromApi = useCallback(async () => {
-    const res = await fetch('/api/v1/tasks?limit=100&include_graph=true');
-    if (!res.ok) throw new Error(`API returned ${res.status}`);
-    const data = await res.json();
+    // include_graph=true is preserved by runtimeApi.listTasks for R8/R37 graph metadata contracts.
+    const data = await runtimeApi.listTasks(PROJECT_ID, { limit: 100, include_graph: true });
     const tasks: ApiTask[] = data.tasks || [];
     setNodes(layoutNodes(tasks));
     setEdges(buildDependencyEdges(tasks));

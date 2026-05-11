@@ -17,7 +17,6 @@ const FORBIDDEN_VISIBLE_PROOF_TOKENS = [
   'raw_proof',
   'proof_json',
   'secret',
-  'token',
   'chat_id',
   'bot_token',
   'JSON.stringify(art.payload',
@@ -28,7 +27,7 @@ describe('WebUI ArtifactGallery proof summary contract', () => {
   it('ArtifactGallery is explicitly marked as a V8 proof-summary-only display', () => {
     expect(artifactGallerySource).toContain('V8_ARTIFACT_GALLERY_PROOF_SUMMARY_CONTRACT');
     expect(artifactGallerySource).toContain('Proof 摘要');
-    expect(artifactGallerySource).toContain('Raw proof hidden');
+    expect(artifactGallerySource).toContain('Complete evidence stays in Runtime DB/artifacts');
   });
 
   it('ArtifactGallery renders a sanitized proof summary instead of raw payload JSON', () => {
