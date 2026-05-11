@@ -203,10 +203,11 @@ Nexus Dispatch is designed around strict runtime boundaries:
 
 ## Documentation
 
-| Guide | Purpose |
+| Entry | Purpose |
 | --- | --- |
-| [Installation](./docs/install.md) | Docker, systemd, smoke tests |
-| [Worker Integration](./docs/worker-contract.md) | Register workers, receive dispatch, submit artifacts |
+| [Docs Index](./docs/index.md) | All public docs entry points in one place |
+| [Run in 5 minutes](./docs/install.md) | Docker, systemd, smoke tests |
+| [Connect a Worker](./docs/worker-contract.md) | Register workers, receive dispatch, submit artifacts |
 | [Runtime API](./docs/runtime-api.md) | Tasks, runs, artifacts, transitions, review policies |
 | [Architecture](./docs/architecture.md) | Runtime boundary, daemon, worker fleet, SQLite SSoT |
 

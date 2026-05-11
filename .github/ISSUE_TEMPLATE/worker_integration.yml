@@ -1,0 +1,93 @@
+name: Worker Integration
+description: Questions or issues about registering workers, receiving dispatch payloads, or submitting proof.
+labels: ["worker-integration", "question"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use this template for anything related to the Worker integration contract:
+        registering a worker endpoint, receiving dispatch from the Daemon, or submitting
+        runs, artifacts, and proof back through the Runtime API.
+
+        **Do not include tokens, internal hostnames, or private URLs.**
+
+  - type: dropdown
+    id: integration-stage
+    attributes:
+      label: Integration Stage
+      description: Where in the worker lifecycle are you stuck?
+      options:
+        - Registering a worker (POST /agents)
+        - Receiving dispatch payloads
+        - Submitting runs (POST /runs)
+        - Submitting artifacts (POST /artifacts)
+        - Requesting task transitions (POST /tasks/transition)
+        - Dialect configuration (hermes vs openclaw)
+        - General question
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What are you trying to do, and what is going wrong?
+      placeholder: |
+        I registered a worker with dialect "openclaw" and lane "DEV", but the
+        Daemon never dispatches tasks to it even though tasks with lane_required
+        "DEV" are in "created" state.
+    validations:
+      required: true
+
+  - type: textarea
+    id: registration-payload
+    attributes:
+      label: Registration Payload (redacted)
+      description: The JSON you sent to POST /api/v1/runtime/projects/:projectId/agents. **Remove real tokens and hostnames.**
+      render: json
+      placeholder: |
+        {
+          "agent_id": "my-worker",
+          "endpoint": "http://YOUR_HOST:8647/v1/runs",
+          "lane": "DEV",
+          "dialect": "openclaw",
+          "status": "online"
+        }
+    validations:
+      required: false
+
+  - type: textarea
+    id: dispatch-payload
+    attributes:
+      label: Dispatch Payload Received (if applicable)
+      description: The JSON your worker received from the Daemon. Redact internal IDs if needed.
+      render: json
+    validations:
+      required: false
+
+  - type: textarea
+    id: error-output
+    attributes:
+      label: Error Output / Logs
+      description: Any error messages, HTTP status codes, or unexpected responses. Redact secrets.
+      render: shell
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: Nexus Dispatch Version
+      description: Commit SHA, tag, or branch.
+      placeholder: "abc1234 or v1.0.0"
+    validations:
+      required: true
+
+  - type: textarea
+    id: worker-setup
+    attributes:
+      label: Worker Environment
+      description: What is your worker built with? How does it receive HTTP requests?
+      placeholder: "Python FastAPI on port 8647, running behind nginx with HTTPS."
+    validations:
+      required: false

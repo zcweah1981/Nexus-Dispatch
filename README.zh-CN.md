@@ -203,10 +203,11 @@ Nexus Dispatch 围绕清晰的 Runtime 边界设计：
 
 ## 文档导航
 
-| 指南 | 说明 |
+| 入口 | 说明 |
 | --- | --- |
-| [部署指南](./docs/install.zh-CN.md) | Docker、systemd、冒烟测试 |
-| [Worker 接入](./docs/worker-contract.md) | 注册 Worker、接收派发、提交 Artifact |
+| [文档索引](./docs/index.md) | 所有公开文档入口集中导航 |
+| [5 分钟运行](./docs/install.zh-CN.md) | Docker、systemd、冒烟测试 |
+| [连接 Worker](./docs/worker-contract.md) | 注册 Worker、接收派发、提交 Artifact |
 | [Runtime API](./docs/runtime-api.md) | Tasks、Runs、Artifacts、Transitions、Review Policies |
 | [架构说明](./docs/architecture.md) | Runtime 边界、Daemon、Worker 集群、SQLite SSoT |
 

@@ -1,0 +1,94 @@
+name: Bug Report
+description: Report a runtime error, incorrect behavior, or test failure in Nexus Dispatch.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill out the sections below.
+        **Do not include tokens, chat IDs, or internal paths.**
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect to happen instead?
+      placeholder: "The Daemon dispatched a task to an offline worker instead of skipping it."
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to Reproduce
+      description: Exact commands or actions to trigger the bug.
+      placeholder: |
+        1. Register a worker with status "offline"
+        2. Create a task with lane_required: "DEV"
+        3. Wait for daemon tick
+        4. Observe dispatch payload sent to offline worker
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected Behavior
+      description: What should have happened.
+      placeholder: "Daemon should skip offline workers and queue the task."
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual Behavior
+      description: What actually happened. Include relevant log output (redact secrets).
+      placeholder: "Dispatch POST returned connection refused. Task stuck in dispatched state."
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: Nexus Dispatch Version
+      description: Commit SHA, tag, or "main" branch.
+      placeholder: "abc1234 or v1.0.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: deploy-method
+    attributes:
+      label: Deployment Method
+      options:
+        - Docker Compose
+        - Bare metal / systemd
+        - Local development (npm run dev)
+    validations:
+      required: true
+
+  - type: input
+    id: node-version
+    attributes:
+      label: Node.js Version
+      placeholder: "20.11.0"
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant Log Output
+      description: Paste log output here. Remove any tokens, API keys, or internal IDs.
+      render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Any other context — configuration, related issues, screenshots.
+    validations:
+      required: false

@@ -1,0 +1,73 @@
+name: Feature Request
+description: Propose a new capability, API endpoint, or improvement for Nexus Dispatch.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the feature you want and why it matters.
+        Keep it grounded in real use cases — no aspirational platform language.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What limitation or friction are you hitting?
+      placeholder: "I have no way to list all completed tasks for a project via the API."
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-solution
+    attributes:
+      label: Proposed Solution
+      description: What should exist that does not exist today? Be specific about API contracts, CLI commands, or behavior changes.
+      placeholder: |
+        Add a GET endpoint: /api/v1/runtime/tasks?project_id=x&status=completed
+        Returns paginated list of completed tasks with artifacts.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives Considered
+      description: What other approaches did you consider? Why are they worse?
+      placeholder: "Querying the database directly — but that violates the API-only boundary."
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance Criteria
+      description: How do we know this feature is done? Use concrete, testable conditions.
+      placeholder: |
+        - Endpoint returns 200 with JSON array for valid project_id
+        - Returns 401 without valid Bearer token
+        - Pagination works with ?limit=10&offset=20
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Affected Area
+      options:
+        - Runtime API
+        - Daemon / Scheduler
+        - Worker Contract
+        - WebUI / Dashboard
+        - Documentation
+        - Deployment / DevOps
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional
+    attributes:
+      label: Additional Context
+      description: Links, references, or screenshots that help explain the request.
+    validations:
+      required: false
