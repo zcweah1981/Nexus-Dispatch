@@ -3,7 +3,7 @@
     <img src="./docs/assets/logo.png" alt="Nexus Dispatch logo" height="23" style="vertical-align: middle;" />
     Nexus Dispatch
   </h1>
-  <p><strong>PM-driven multi-agent control plane.</strong></p>
+  <p><strong>PM-driven control plane for long-running multi-agent work.</strong></p>
   <p>
     <a href="./README.md">English</a> ·
     <a href="./README.zh-CN.md">简体中文</a> ·
@@ -12,11 +12,11 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Runtime-API_Control_Plane-blue" alt="API Control Plane" />
-  <img src="https://img.shields.io/badge/Tasks-Long--running_Unattended-9cf" alt="Long-running Tasks" />
-  <img src="https://img.shields.io/badge/Delivery-Proof--based-brightgreen" alt="Proof-based Delivery" />
-  <img src="https://img.shields.io/badge/Fleet-Multi--Agent-purple" alt="Multi-Agent Fleet" />
-  <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
+  <img src="https://img.shields.io/badge/Runtime-API_Control_Plane-315A9E?labelColor=0B111E" alt="API Control Plane" />
+  <img src="https://img.shields.io/badge/Tasks-Long--running-315A9E?labelColor=0B111E" alt="Long-running Tasks" />
+  <img src="https://img.shields.io/badge/Delivery-Proof--gated-315A9E?labelColor=0B111E" alt="Proof-gated Delivery" />
+  <img src="https://img.shields.io/badge/Fleet-Multi--Agent-315A9E?labelColor=0B111E" alt="Multi-Agent Fleet" />
+  <img src="https://img.shields.io/badge/License-MIT-315A9E?labelColor=0B111E" alt="License: MIT" />
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
 
 ---
 
-> A single PM brain dispatches work to heterogeneous AI agents, tracks every state transition through a state-machine runtime, and verifies completion with structured proof gates — unattended, observable, and auditable.
+> A PM-style control plane for independent AI workers. Nexus Dispatch routes work, tracks every state transition through a runtime state machine, and verifies completion through structured proof gates — unattended, observable, and auditable.
 
 ---
 
@@ -44,23 +44,23 @@
 
 ## What It Does
 
-Nexus Dispatch does three things — and does them well:
-
 <p align="center">
   <img src="./docs/assets/hero.png" alt="Nexus Dispatch — dispatch, track, and verify multi-agent work" width="100%" />
 </p>
 
-| | What | How |
+| Capability | Outcome | Mechanism |
 | --- | --- | --- |
-| 📤 **Dispatch** | Route the right task to the right agent at the right time. | DAG-based dependency resolution, lane routing, priority evaluation. No manual assignment. |
-| 📡 **Track** | Know where every task stands, always. | FSM-driven lifecycle (`created → dispatched → running → completion_pending → completed`). Every transition through REST API. |
-| ✅ **Verify** | Nothing is "done" until proof passes the gate. | Workers submit structured artifacts (Git SHA, file hashes, screenshots). Review policy routes high-risk work to human review; routine work auto-advances on machine proof. |
+| **Dispatch** | The right task reaches the right worker. | DAG resolution, lane routing, priority evaluation. No manual assignment. |
+| **Track** | Every task has a visible lifecycle. | FSM transitions (`created → dispatched → running → completion_pending → completed`) through the Runtime API. |
+| **Verify** | Completion requires evidence. | Runs, artifacts, proof payloads, and review policy. High-risk tasks require human review; routine work auto-advances on machine proof. |
 
 ---
 
-## 5-Minute Happy Path
+## 5-Minute Runtime Smoke Test
 
-Get from zero to a dispatched task in under 5 minutes.
+Get from zero to a running Runtime API and a dispatchable task in under 5 minutes.
+
+> **Note:** This smoke test starts the Runtime API and creates a dispatchable task. It does not include a mock worker — task completion requires a real Worker endpoint.
 
 ### Prerequisites
 
@@ -73,7 +73,7 @@ Get from zero to a dispatched task in under 5 minutes.
 git clone https://github.com/zcweah1981/Nexus-Dispatch.git
 cd Nexus-Dispatch
 cp .env.example .env
-# Edit .env — set API_AUTH_TOKEN and project settings. Never commit .env.
+# Edit .env — set YOUR_RUNTIME_TOKEN/API auth and project settings. Never commit .env.
 ```
 
 ### Step 2 — Launch (1 min)
@@ -86,7 +86,7 @@ curl -i "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dis
 
 # Verify: authenticated request should return JSON
 curl -sS \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer YOUR_RUNTIME_TOKEN" \
   "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dispatch"
 ```
 
@@ -95,7 +95,7 @@ curl -sS \
 ```bash
 curl -sS -X POST \
   "http://localhost:8000/api/v1/runtime/projects/nexus-dispatch/agents" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer YOUR_RUNTIME_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "my-worker-1",
@@ -113,7 +113,7 @@ curl -sS -X POST \
 ```bash
 curl -sS -X POST \
   "http://localhost:8000/api/v1/runtime/tasks" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer YOUR_RUNTIME_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "project_id": "nexus-dispatch",
@@ -128,7 +128,7 @@ curl -sS -X POST \
 
 ### Step 5 — Observe (1 min)
 
-- **WebUI:** Open `http://localhost:3030` — watch the task appear, get dispatched, and complete.
+- **WebUI:** Open `http://localhost:3030` — watch the task appear and get dispatched.
 - **Telegram:** If configured, your agent's bot posts a human-readable summary — no internal IDs, no raw JSON.
 
 👉 **Full deployment guide, systemd setup, and troubleshooting:** [docs/install.md](./docs/install.md)
@@ -139,61 +139,12 @@ curl -sS -X POST \
 
 Workers interact with Nexus Dispatch through a simple HTTP contract. No SDK required.
 
-### Registration
+- Register a project-scoped worker endpoint and lane.
+- Receive dispatch payloads from the PM Daemon.
+- Submit Runs, Artifacts, and transition proof through the Runtime API.
+- Never access SQLite, make scheduling decisions, or mark tasks complete directly.
 
-Workers register via `POST /api/v1/runtime/projects/:projectId/agents`:
-
-```json
-{
-  "agent_id": "long-coder-1",
-  "endpoint": "http://worker-host:8647/v1/runs",
-  "lane": "DEV",
-  "dialect": "openclaw",
-  "soul_prompt": "Execute assigned DEV tasks only and return structured proof.",
-  "tools_allowed": ["terminal", "file", "web"],
-  "status": "online"
-}
-```
-
-### Receive Dispatch
-
-The Daemon POSTs a task payload to the worker's `endpoint`:
-
-```json
-{
-  "task_id": "uuid",
-  "project_id": "nexus-dispatch",
-  "title": "Implement X",
-  "objective": "Build feature X with tests.",
-  "lane_required": "DEV",
-  "acceptance_criteria": ["Feature X passes tests", "Git SHA provided"],
-  "acceptance_mode": "group_only",
-  "reviewer": "seiya",
-  "max_retries": 2
-}
-```
-
-### Submit Proof
-
-Workers POST structured proof to `POST /api/v1/runtime/tasks/:taskId/proof`:
-
-```json
-{
-  "run_status": "completed",
-  "proof": {
-    "repo_proof": { "git_sha": "abc1234", "branch": "feat/x" },
-    "run_proof": { "tests_passed": 12, "tests_failed": 0 },
-    "summary": "Feature X implemented with 12 passing tests."
-  }
-}
-```
-
-### Key Rules
-
-- Workers **never** access SQLite directly — all interaction through the Runtime API.
-- Workers **never** make scheduling decisions — the PM Brain owns all routing.
-- Workers **must** submit structured proof — plain-text "done" is rejected.
-- Workers **may** be offline between tasks — the Daemon retries on a configurable schedule.
+👉 Full integration details: [docs/worker-contract.md](./docs/worker-contract.md)
 
 ---
 
@@ -215,7 +166,7 @@ Workers POST structured proof to `POST /api/v1/runtime/tasks/:taskId/proof`:
 
 ## Product Flow
 
-![Nexus Dispatch product flow — create task, dispatch, worker execution, proof, review, verified delivery](./docs/assets/nexus-product-flow-approved.jpg)
+![Nexus Dispatch product flow — create task, dispatch, worker execution, proof, review, verified delivery](./docs/assets/flow.png)
 
 1. **Create task** — PM defines lane, priority, dependencies, and review policy.
 2. **Dispatch** — PM Brain resolves DAG order and routes the run to the right worker lane.
@@ -227,53 +178,37 @@ Workers POST structured proof to `POST /api/v1/runtime/tasks/:taskId/proof`:
 
 ## Architecture
 
-![Nexus Dispatch architecture — single PM brain, multi-agent fleet, API control plane, proof closed loop](./docs/assets/nexus-architecture-approved.jpg)
+![Nexus Dispatch architecture — single PM brain, multi-agent fleet, API control plane, proof closed loop](./docs/assets/architecture.png)
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     Human Layer                         │
-│  Telegram (per-agent bots)  ·  WebUI (read-only SSE)    │
-└──────────┬──────────────────────────┬───────────────────┘
-           │ notifications            │ observability
-           ▼                          ▼
-┌─────────────────────────────────────────────────────────┐
-│              Runtime API (Express :8000)                 │
-│  ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐  │
-│  │ Tasks   │ │ Runs     │ │ Reports  │ │ Blueprints │  │
-│  │ Agents  │ │ Cronjobs │ │ Artifacts│ │ Review     │  │
-│  └─────────┘ └──────────┘ └──────────┘ └────────────┘  │
-│              Bearer Token Auth · /api/v1/runtime/*       │
-└──────────┬──────────────────────────────────┬───────────┘
-           │ tick loop                        │ register
-           ▼                                  ▼
-┌────────────────────┐            ┌───────────────────────┐
-│  PM Daemon         │  dispatch  │  Worker Agents        │
-│  · DAG resolution  │ ────────▶  │  · claim → run        │
-│  · Priority eval   │  ◀──────── │  · submit proof       │
-│  · Review gating   │  artifact  │  · POST results       │
-└────────────────────┘            └───────────────────────┘
-           │
-           ▼
-┌────────────────────┐
-│  SQLite (SSoT)     │  ← API-internal only
-│  Prisma DAL        │    No external access
-└────────────────────┘
-```
+Core invariants:
 
-**Key invariant:** SQLite is visible only inside the API server process. Workers, Daemon, and WebUI never touch the database directly.
+1. **Runtime API is the only state boundary.** All reads and writes go through REST. SQLite is internal to the API server process.
+2. **Workers are stateless executors.** They receive dispatch, execute, and submit proof. They never touch SQLite or make scheduling decisions.
+3. **PM Daemon owns scheduling, dispatch, retry, and review gates.** No agent self-assigns or self-completes.
 
 ---
 
-## Documentation Index
+## Security Model
 
-| Document | Description |
+Nexus Dispatch is designed around strict runtime boundaries:
+
+- All state changes go through the Runtime API.
+- Workers never access SQLite directly.
+- Every `/api/v1/runtime/*` request requires Bearer token authentication.
+- Worker output is accepted only as structured runs, artifacts, and proof payloads.
+- Telegram messages contain human-readable summaries — no raw secrets, internal IDs, or payloads.
+- Public deployments should run behind HTTPS and keep `.env` out of version control.
+
+---
+
+## Documentation
+
+| Guide | Purpose |
 | --- | --- |
-| [docs/install.md](./docs/install.md) | Full deployment guide: Docker, systemd, smoke tests |
-| [docs/install.zh-CN.md](./docs/install.zh-CN.md) | 简体中文部署指南 |
-| [docs/install.zh-TW.md](./docs/install.zh-TW.md) | 繁體中文部署導覽 |
-| [docs/TRILINGUAL-STRATEGY.md](./docs/TRILINGUAL-STRATEGY.md) | Trilingual docs strategy and naming rules |
-| [docs/v8/](./docs/v8/) | Runtime proof, API contracts, schema specs |
-| [docs/assets/](./docs/assets/) | Product visuals: logo, banner, flow, architecture |
+| [Installation](./docs/install.md) | Docker, systemd, smoke tests |
+| [Worker Integration](./docs/worker-contract.md) | Register workers, receive dispatch, submit artifacts |
+| [Runtime API](./docs/runtime-api.md) | Tasks, runs, artifacts, transitions, review policies |
+| [Architecture](./docs/architecture.md) | Runtime boundary, daemon, worker fleet, SQLite SSoT |
 
 ---
 
@@ -285,12 +220,18 @@ Workers POST structured proof to `POST /api/v1/runtime/tasks/:taskId/proof`:
 | **Current** | Active development — control plane MVP |
 | **Stable capabilities** | Schema + Prisma DAL · Runtime API + FSM Controller · Daemon / Dispatcher · Review / Acceptance · Completion Reports · Telegram Notifications |
 | **In progress** | WebUI rebuild · Project Cron Registry · E2E Release Candidate |
+| **Recommended today** | Personal agent fleet, internal automation, single-VPS control plane |
+| **Not recommended yet** | Public multi-tenant SaaS, regulated workloads, high-scale distributed queue replacement |
 
-### Recommended Use
+---
 
-- ✅ **Best for:** Teams running 3+ heterogeneous AI agents on long-running tasks (coding, design, content, ops) who need a PM brain to coordinate dispatch, track progress, and verify delivery.
-- ✅ **Best for:** Solo builders who want fire-and-forget multi-agent workflows without building orchestration from scratch.
-- ⚠️ **Not ready for:** Multi-tenant SaaS, K8s auto-scaling, or agent marketplace use cases.
+## Validation Commands
+
+```bash
+npm run build              # TypeScript compilation
+npm test                   # Jest test suite
+npm run validate:api-deploy # Route boundary + deploy validation
+```
 
 ---
 

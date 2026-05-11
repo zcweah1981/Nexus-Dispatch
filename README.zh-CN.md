@@ -3,7 +3,7 @@
     <img src="./docs/assets/logo.png" alt="Nexus Dispatch logo" height="23" style="vertical-align: middle;" />
     Nexus Dispatch
   </h1>
-  <p><strong>PM-driven multi-agent control plane.</strong></p>
+  <p><strong>面向长任务的 PM 驱动多 Agent 控制平面。</strong></p>
   <p>
     <a href="./README.md">English</a> ·
     <a href="./README.zh-CN.md">简体中文</a> ·
@@ -12,20 +12,20 @@
 </div>
 
 <p align="center">
-  <img src="https://img.shields.io/badge/Runtime-API_控制平面-blue" alt="API 控制平面" />
-  <img src="https://img.shields.io/badge/Tasks-长任务_无人值守-9cf" alt="长任务无人值守" />
-  <img src="https://img.shields.io/badge/Delivery-证据闭环-brightgreen" alt="证据闭环" />
-  <img src="https://img.shields.io/badge/Fleet-多Agent-purple" alt="多 Agent" />
-  <img src="https://img.shields.io/badge/License-MIT-blue" alt="License: MIT" />
+  <img src="https://img.shields.io/badge/Runtime-API_控制平面-315A9E?labelColor=0B111E" alt="API 控制平面" />
+  <img src="https://img.shields.io/badge/Tasks-长任务_无人值守-315A9E?labelColor=0B111E" alt="长任务无人值守" />
+  <img src="https://img.shields.io/badge/Delivery-证据闭环-315A9E?labelColor=0B111E" alt="证据闭环" />
+  <img src="https://img.shields.io/badge/Fleet-多Agent-315A9E?labelColor=0B111E" alt="多 Agent" />
+  <img src="https://img.shields.io/badge/License-MIT-315A9E?labelColor=0B111E" alt="License: MIT" />
 </p>
 
 <p align="center">
-  <img src="./docs/assets/banner.png" alt="Nexus Dispatch — PM-driven control plane for long-running multi-agent work" width="720" />
+  <img src="./docs/assets/banner.png" alt="Nexus Dispatch — 面向长任务的 PM 驱动多 Agent 控制平面" width="720" />
 </p>
 
 ---
 
-> 一个 PM 大脑中枢向异构 AI Agent 派发任务，通过状态机运行时追踪每次状态流转，并以结构化证据门控验证完成——全程无人值守、全程可观察、可审计。
+> 面向独立 AI Worker 的 PM 控制平面。Nexus Dispatch 负责派发任务，通过状态机 Runtime 追踪每次状态流转，并以结构化证据门控验证完成——无人值守、全程可观察、可审计。
 
 ---
 
@@ -44,23 +44,23 @@
 
 ## 它做什么
 
-Nexus Dispatch 只做三件事——并且做好：
-
 <p align="center">
   <img src="./docs/assets/hero.png" alt="Nexus Dispatch — 派发、追踪并验证多 Agent 工作" width="100%" />
 </p>
 
-| | 做什么 | 怎么做 |
+| 能力 | 结果 | 机制 |
 | --- | --- | --- |
-| 📤 **派发** | 在正确的时间把正确的任务派给正确的 Agent。 | DAG 依赖解析、泳道路由、优先级评估。无需人工指派。 |
-| 📡 **追踪** | 随时知道每个任务在哪一步。 | FSM 驱动的生命周期（`created → dispatched → running → completion_pending → completed`）。每次流转走 REST API。 |
-| ✅ **验证** | 证据不过门控，就不算"完成"。 | Worker 提交结构化交付物（Git SHA、文件哈希、截图）。高风险任务走人工审核；常规任务在机器验证后自动推进。 |
+| **派发** | 正确的任务到达正确的 Worker。 | DAG 依赖解析、泳道 Lane 路由、优先级评估。无需人工指派。 |
+| **追踪** | 每个任务都有可见生命周期。 | FSM 状态流转（`created → dispatched → running → completion_pending → completed`），所有流转通过 Runtime API。 |
+| **验证** | 没有证据，就不能完成。 | Run、Artifact、Proof Payload 与 Review Policy 决定交付是否通过。高风险任务走人工审核；常规任务在机器验证后自动推进。 |
 
 ---
 
-## 5 分钟快速上手
+## 5 分钟 Runtime 冒烟测试
 
-从零到一个已派发的任务，5 分钟内搞定。
+从零启动 Runtime API，并创建一个可派发任务。
+
+> **说明：** 本冒烟测试仅启动 Runtime API 并创建可派发任务。不包含模拟 Worker——任务完成需要真实的 Worker 端点。
 
 ### 前置条件
 
@@ -73,7 +73,7 @@ Nexus Dispatch 只做三件事——并且做好：
 git clone https://github.com/zcweah1981/Nexus-Dispatch.git
 cd Nexus-Dispatch
 cp .env.example .env
-# 编辑 .env — 设置 API_AUTH_TOKEN 和项目参数。绝不要提交 .env。
+# 编辑 .env — 设置 YOUR_RUNTIME_TOKEN 和项目参数。绝不要提交 .env。
 ```
 
 ### 第 2 步 — 启动（1 分钟）
@@ -86,7 +86,7 @@ curl -i "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dis
 
 # 验证：已认证请求应返回 JSON
 curl -sS \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer YOUR_RUNTIME_TOKEN" \
   "http://localhost:8000/api/v1/runtime/tasks/pending?project_id=nexus-dispatch"
 ```
 
@@ -95,7 +95,7 @@ curl -sS \
 ```bash
 curl -sS -X POST \
   "http://localhost:8000/api/v1/runtime/projects/nexus-dispatch/agents" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer YOUR_RUNTIME_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "agent_id": "my-worker-1",
@@ -113,7 +113,7 @@ curl -sS -X POST \
 ```bash
 curl -sS -X POST \
   "http://localhost:8000/api/v1/runtime/tasks" \
-  -H "Authorization: Bearer $API_AUTH_TOKEN" \
+  -H "Authorization: Bearer YOUR_RUNTIME_TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
     "project_id": "nexus-dispatch",
@@ -128,7 +128,7 @@ curl -sS -X POST \
 
 ### 第 5 步 — 观察（1 分钟）
 
-- **WebUI：** 打开 `http://localhost:3030`——任务出现、被派发、完成，全程可见。
+- **WebUI：** 打开 `http://localhost:3030`——任务出现、被派发，全程可见。
 - **Telegram：** 如果已配置，Agent 的 bot 会发布人类可读的摘要——无内部 ID、无原始 JSON。
 
 👉 **完整部署指南、systemd 配置和故障排查：** [docs/install.zh-CN.md](./docs/install.zh-CN.md)
@@ -139,61 +139,12 @@ curl -sS -X POST \
 
 Worker 通过简单的 HTTP 契约与 Nexus Dispatch 交互。无需 SDK。
 
-### 注册
+- 注册项目级 Worker endpoint 与泳道。
+- 接收 PM Daemon 派发的任务 payload。
+- 通过 Runtime API 提交 Run、Artifact 与状态迁移 proof。
+- 绝不直接访问 SQLite、做调度决策或自行标记任务完成。
 
-Worker 通过 `POST /api/v1/runtime/projects/:projectId/agents` 注册：
-
-```json
-{
-  "agent_id": "long-coder-1",
-  "endpoint": "http://worker-host:8647/v1/runs",
-  "lane": "DEV",
-  "dialect": "openclaw",
-  "soul_prompt": "Execute assigned DEV tasks only and return structured proof.",
-  "tools_allowed": ["terminal", "file", "web"],
-  "status": "online"
-}
-```
-
-### 接收派发
-
-Daemon 向 Worker 的 `endpoint` POST 任务负载：
-
-```json
-{
-  "task_id": "uuid",
-  "project_id": "nexus-dispatch",
-  "title": "实现功能 X",
-  "objective": "构建功能 X 并通过测试。",
-  "lane_required": "DEV",
-  "acceptance_criteria": ["功能 X 通过测试", "提供 Git SHA"],
-  "acceptance_mode": "group_only",
-  "reviewer": "seiya",
-  "max_retries": 2
-}
-```
-
-### 提交证据
-
-Worker 向 `POST /api/v1/runtime/tasks/:taskId/proof` 提交结构化证据：
-
-```json
-{
-  "run_status": "completed",
-  "proof": {
-    "repo_proof": { "git_sha": "abc1234", "branch": "feat/x" },
-    "run_proof": { "tests_passed": 12, "tests_failed": 0 },
-    "summary": "功能 X 已实现，12 个测试全部通过。"
-  }
-}
-```
-
-### 关键规则
-
-- Worker **绝不**直接访问 SQLite——所有交互通过 Runtime API。
-- Worker **绝不**做调度决策——PM 大脑拥有所有路由权。
-- Worker **必须**提交结构化证据——纯文本"已完成"会被拒绝。
-- Worker **可以**在任务间离线——Daemon 按可配置的时间表重试。
+👉 完整接入细节：[docs/worker-contract.md](./docs/worker-contract.md)
 
 ---
 
@@ -203,7 +154,7 @@ Worker 向 `POST /api/v1/runtime/tasks/:taskId/proof` 提交结构化证据：
 | --- | --- |
 | **PM 大脑** | 唯一的调度权威。解析 DAG、评估优先级、门控审核。实现为无头 Daemon Tick Loop。 |
 | **Worker** | 无状态执行器。认领任务、执行、提交证据。不做调度决策。 |
-| **泳道 (Lane)** | Worker 的专业方向：`DEV`、`DESIGN`、`OPS`、`CONTENT`。任务声明所需泳道。 |
+| **泳道 Lane** | Worker 的专业方向：`DEV`、`DESIGN`、`OPS`、`CONTENT`。任务声明所需泳道。 |
 | **方言 (Dialect)** | Daemon 与 Worker 的通信协议：`hermes`（Telegram 原生）或 `openclaw`（HTTP Webhook）。 |
 | **FSM** | 有限状态机，管理任务生命周期。任何 Agent 都不能跳过状态或自行标记完成。 |
 | **证据门控 (Proof Gate)** | 完成门控，要求结构化交付物。类型：`repo_proof`、`run_proof`、`review_proof`、`report_proof`、`ops_proof`。 |
@@ -215,65 +166,49 @@ Worker 向 `POST /api/v1/runtime/tasks/:taskId/proof` 提交结构化证据：
 
 ## 工作流全景
 
-![Nexus Dispatch 工作流全景 — 创建任务、派发执行、Worker 执行、Proof 与交付物、审核与验证交付](./docs/assets/nexus-product-flow-approved.jpg)
+![Nexus Dispatch 工作流全景 — 创建任务、派发执行、Worker 执行、Proof 与交付物、审核与验证交付](./docs/assets/flow.png)
 
-1. **创建任务** —— PM 定义泳道、优先级、依赖关系与审核策略。
-2. **派发执行** —— 大脑中枢解析 DAG 顺序，并把 Run 路由到正确的 Worker 泳道。
-3. **Worker 执行** —— Worker 认领任务、执行工作，并返回结构化结果。
-4. **Proof 与交付物** —— Git SHA、文件、图片与完成 payload 统一通过 Runtime API 回流。
-5. **审核与验证交付** —— 策略决定自动通过、返工或人工审核，最后生成可见交付。
+1. **创建任务** — PM 定义泳道、优先级、依赖关系与审核策略。
+2. **派发执行** — PM 大脑解析 DAG 顺序，并把 Run 路由到正确的 Worker 泳道。
+3. **Worker 执行** — Worker 认领任务、执行工作，并返回结构化结果。
+4. **Proof 与交付物** — Git SHA、文件、图片与完成 payload 统一通过 Runtime API 回流。
+5. **审核与验证交付** — 策略决定自动通过、返工或人工审核，最后生成可见交付。
 
 ---
 
 ## 架构
 
-![Nexus Dispatch 架构 — 单一 PM 大脑、多 Agent 协作、API 控制平面、证据闭环](./docs/assets/nexus-architecture-approved.jpg)
+![Nexus Dispatch 架构 — 单一 PM 大脑、多 Agent 协作、API 控制平面、证据闭环](./docs/assets/architecture.png)
 
-```
-┌─────────────────────────────────────────────────────────┐
-│                     人类层                               │
-│  Telegram (每 Agent 独立 bot)  ·  WebUI (只读 SSE)       │
-└──────────┬──────────────────────────┬───────────────────┘
-           │ 通知                      │ 可观测
-           ▼                          ▼
-┌─────────────────────────────────────────────────────────┐
-│              Runtime API (Express :8000)                 │
-│  ┌─────────┐ ┌──────────┐ ┌──────────┐ ┌────────────┐  │
-│  │ Tasks   │ │ Runs     │ │ Reports  │ │ Blueprints │  │
-│  │ Agents  │ │ Cronjobs │ │ Artifacts│ │ Review     │  │
-│  └─────────┘ └──────────┘ └──────────┘ └────────────┘  │
-│              Bearer Token Auth · /api/v1/runtime/*       │
-└──────────┬──────────────────────────────────┬───────────┘
-           │ Tick Loop                        │ 注册
-           ▼                                  ▼
-┌────────────────────┐            ┌───────────────────────┐
-│  PM Daemon         │  派发      │  Worker Agents        │
-│  · DAG 解析        │ ────────▶  │  · claim → run        │
-│  · 优先级评估      │  ◀──────── │  · 提交证据           │
-│  · 审核门控        │  交付物    │  · POST 结果          │
-└────────────────────┘            └───────────────────────┘
-           │
-           ▼
-┌────────────────────┐
-│  SQLite (SSoT)     │  ← 仅 API 进程内部可见
-│  Prisma DAL        │    外部无任何访问途径
-└────────────────────┘
-```
+核心不变量：
 
-**核心不变量：** SQLite 仅在 API Server 进程内可见。Worker、Daemon 和 WebUI 绝不直接操作数据库。
+1. **Runtime API 是唯一状态边界。** 所有读写通过 REST，SQLite 仅在 API Server 进程内部可见。
+2. **Worker 是无状态执行端。** 接收派发、执行、提交证据，绝不直接访问 SQLite 或做调度决策。
+3. **PM Daemon 负责调度、派发、重试和审核门控。** 任何 Agent 不能自行认领或自行标记完成。
+
+---
+
+## 安全模型
+
+Nexus Dispatch 围绕清晰的 Runtime 边界设计：
+
+- 所有状态流转必须经过 Runtime API。
+- Worker 绝不直接访问 SQLite。
+- 每个 `/api/v1/runtime/*` 请求都需要 Bearer Token。
+- Worker 的输出必须以 Run、Artifact、Proof Payload 的形式提交。
+- Telegram 消息只包含人类可读摘要，不暴露原始密钥或内部 payload。
+- 公开部署应启用 HTTPS，并确保 `.env` 不进入版本库。
 
 ---
 
 ## 文档导航
 
-| 文档 | 说明 |
+| 指南 | 说明 |
 | --- | --- |
-| [docs/install.md](./docs/install.md) | 英文完整部署指南：Docker、systemd、冒烟测试 |
-| [docs/install.zh-CN.md](./docs/install.zh-CN.md) | 简体中文部署指南 |
-| [docs/install.zh-TW.md](./docs/install.zh-TW.md) | 繁體中文部署導覽 |
-| [docs/TRILINGUAL-STRATEGY.md](./docs/TRILINGUAL-STRATEGY.md) | 三语文档策略与命名规则 |
-| [docs/v8/](./docs/v8/) | Runtime Proof 文档、API 契约、Schema 规范 |
-| [docs/assets/](./docs/assets/) | 产品视觉资产：logo、banner、工作流全景、架构图 |
+| [部署指南](./docs/install.zh-CN.md) | Docker、systemd、冒烟测试 |
+| [Worker 接入](./docs/worker-contract.md) | 注册 Worker、接收派发、提交 Artifact |
+| [Runtime API](./docs/runtime-api.md) | Tasks、Runs、Artifacts、Transitions、Review Policies |
+| [架构说明](./docs/architecture.md) | Runtime 边界、Daemon、Worker 集群、SQLite SSoT |
 
 ---
 
@@ -285,12 +220,18 @@ Worker 向 `POST /api/v1/runtime/tasks/:taskId/proof` 提交结构化证据：
 | **当前** | 活跃开发中——控制平面 MVP |
 | **稳定能力** | Schema + Prisma DAL · Runtime API + FSM Controller · Daemon / Dispatcher · Review / Acceptance · Completion Reports · Telegram 通知 |
 | **进行中** | WebUI 重建 · Project Cron Registry · E2E Release Candidate |
+| **当前推荐** | 个人多 Agent 编排、内部自动化、单 VPS 控制平面 |
+| **暂不推荐** | 公共多租户 SaaS、强监管生产负载、高规模分布式队列替代 |
 
-### 推荐使用
+---
 
-- ✅ **最适合：** 运行 3+ 异构 AI Agent 处理长任务（编码、设计、内容、运维）的团队，需要 PM 大脑协调派发、追踪进度、验证交付。
-- ✅ **最适合：** 个人开发者想要发射后不管的多 Agent 工作流，无需从零搭建编排系统。
-- ⚠️ **尚未准备好：** 多租户 SaaS、K8s 自动伸缩或 Agent 市场场景。
+## 验证命令
+
+```bash
+npm run build              # TypeScript 编译
+npm test                   # Jest 测试套件
+npm run validate:api-deploy # 路由边界与部署验证
+```
 
 ---
 
