@@ -11,8 +11,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Community health files: `CONTRIBUTING.md`, `SECURITY.md`, `CODE_OF_CONDUCT.md`.
 - GitHub issue templates: bug report, feature request, worker integration.
 - GitHub pull request template with proof-gated checklist.
+- Example: `examples/curl-smoke-test/` — copy-paste runnable Runtime API smoke test.
+- Example: `examples/mock-worker/` — minimal Node.js mock worker with dispatch contract demonstration.
+- Worker integration guides: OpenClaw, Hermes, and dual-agent setup (EN / zh-CN / zh-TW).
+- Trilingual installation guides (EN / zh-CN / zh-TW) with deployment diagrams.
+- Release notes: [docs/release-notes-v0.1.0.md](./docs/release-notes-v0.1.0.md).
 
-## [1.0.0] - 2026-05-03
+## [0.1.0] - 2026-05-11
+
+### Summary
+
+Developer preview release. Single-node, API-first runtime for PM-driven multi-agent dispatch.
+
+👉 **Full release notes:** [docs/release-notes-v0.1.0.md](./docs/release-notes-v0.1.0.md)
 
 ### Added
 - Runtime API (`/api/v1/runtime/*`) with Bearer token authentication.
@@ -41,5 +52,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Self-review inactive guard prevents agents approving their own work.
 - Forbidden direct-to-completed transition enforcement on the FSM.
 
-[Unreleased]: https://github.com/zcweah1981/Nexus-Dispatch/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/zcweah1981/Nexus-Dispatch/releases/tag/v1.0.0
+### Known Limits
+- Single-node only. No horizontal scaling.
+- WebUI is read-only. All mutations through Runtime API.
+- No task cancel API. No built-in CI/CD.
+- Blueprint auto-thaw not yet implemented.
+- No rate limiting on the Runtime API.
+
+[Unreleased]: https://github.com/zcweah1981/Nexus-Dispatch/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/zcweah1981/Nexus-Dispatch/releases/tag/v0.1.0

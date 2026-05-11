@@ -24,6 +24,10 @@ Start here when you need the operational entry points without reading the full R
 - [Hermes Worker Guide](./guides/hermes-agent.md) — example Hermes-native Worker wiring.
 - [Dual-Agent Guide](./guides/dual-agent.md) — example split setup for two Worker styles.
 
+## Release Notes
+
+- [v0.1.0 Developer Preview (May 2026)](./release-notes-v0.1.0.md) — what it is, what you can run today, install paths, worker contract, known limits, next milestone.
+
 ## Architecture and API References
 
 - [Architecture](./architecture.md)
