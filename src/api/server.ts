@@ -4,11 +4,11 @@
  */
 
 import express = require('express');
-import { Request, Response } from 'express';
 import cors = require('cors');
 import { EventEmitter } from 'events';
 
 import { createApiRouter } from './routes';
+import { createRealtimeRouter } from './realtime_events';
 import { PrismaDAL } from '../db/prisma_dal';
 import {
   bearerAuth,
@@ -32,32 +32,8 @@ export function createServer(arg1?: string | unknown, arg2?: PrismaDAL | string,
   app.use('/api/v1', bearerAuth(authToken));
 
   // ─── API Router (all /api/v1/* business routes) ───────────────────
+  app.use('/api/v1', createRealtimeRouter(stateEmitter));
   app.use('/api/v1', createApiRouter(authToken, prismaDal));
-
-  // SSE Endpoint for frontend (no auth — public event stream)
-  app.get('/events/stream', (req: Request, res: Response) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-
-    res.write(`data: ${JSON.stringify({ type: 'connected', message: 'SSE connection established' })}\n\n`);
-
-    const heartbeat = setInterval(() => {
-      res.write(`data: ${JSON.stringify({ type: 'ping', timestamp: Date.now() })}\n\n`);
-    }, 15000);
-
-    const onStateChange = (event: any) => {
-      res.write(`data: ${JSON.stringify(event)}\n\n`);
-    };
-
-    stateEmitter.on('state_change', onStateChange);
-
-    req.on('close', () => {
-      clearInterval(heartbeat);
-      stateEmitter.off('state_change', onStateChange);
-    });
-  });
 
   // ─── 404 handler for unmatched API routes ─────────────────────────
   app.use('/api/v1', notFoundHandler);

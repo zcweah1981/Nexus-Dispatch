@@ -240,6 +240,69 @@ export function createApiRouter(authToken: string = 'valid-token', prismaDal?: P
     }
   });
 
+  router.get('/runtime/projects/:projectId/release/readiness', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const releaseReadiness = await service.getReleaseReadiness(req.params.projectId as string);
+      return res.status(200).json({ release_readiness: releaseReadiness });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime release readiness');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/leak-scan/summary', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const leakScanSummary = await service.getLeakScanSummary(req.params.projectId as string);
+      return res.status(200).json({ leak_scan_summary: leakScanSummary });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime leak scan summary');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/proofs', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    try {
+      const proofs = await service.searchProofs(projectId, {
+        query: req.query.query as string | undefined,
+        artifact_type: req.query.artifact_type as string | undefined,
+        task_id: req.query.task_id as string | undefined,
+        run_id: req.query.run_id as string | undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+      });
+      return res.status(200).json({ project_id: projectId, proofs, total: proofs.length });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to search runtime proofs');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/observability/metrics', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    try {
+      const metrics = await service.getObservabilityMetrics(req.params.projectId as string);
+      return res.status(200).json({ metrics });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime observability metrics');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/agents/performance', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    try {
+      const agentPerformance = await service.getAgentPerformance(projectId);
+      return res.status(200).json({ project_id: projectId, agent_performance: agentPerformance, total: agentPerformance.length });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime agent performance');
+    }
+  });
+
   router.get('/runtime/projects/:projectId/settings/visible-language', async (req: Request, res: Response) => {
     const service = runtimeServiceOr503(res);
     if (!service) return;

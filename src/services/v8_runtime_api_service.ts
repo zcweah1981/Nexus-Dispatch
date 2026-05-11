@@ -621,6 +621,142 @@ export class V8RuntimeApiService {
     };
   }
 
+  async getReleaseReadiness(projectId: string) {
+    await this.getProject(projectId);
+    const [tasks, runs, artifacts, reports] = await Promise.all([
+      this.tasks.list(projectId),
+      this.prisma.run.findMany({ where: { project_id: projectId } }),
+      this.artifacts.list(projectId, { limit: 200 }),
+      this.reports.list(projectId, { limit: 200 }),
+    ]);
+    const taskCounts = countBy(tasks, 'status');
+    const runCounts = countBy(runs, 'status');
+    const proofCounts = countBy(artifacts, 'artifact_type');
+    const blockers = [
+      ...(taskCounts.blocked ? [{ type: 'blocked_tasks', count: taskCounts.blocked }] : []),
+      ...(taskCounts.dead_letter ? [{ type: 'dead_letter_tasks', count: taskCounts.dead_letter }] : []),
+      ...(runCounts.failed || runCounts.error ? [{ type: 'failed_runs', count: (runCounts.failed ?? 0) + (runCounts.error ?? 0) }] : []),
+    ];
+    return {
+      project_id: projectId,
+      project_scoped: true,
+      ready: blockers.length === 0,
+      blockers,
+      task_counts_by_status: taskCounts,
+      run_counts_by_status: runCounts,
+      proof_counts_by_type: proofCounts,
+      reports_sent: reports.filter((report) => report.status === 'sent').length,
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  async getLeakScanSummary(projectId: string) {
+    await this.getProject(projectId);
+    const [project, tasks, runs, artifacts, reports, agents] = await Promise.all([
+      this.getProject(projectId),
+      this.tasks.list(projectId),
+      this.prisma.run.findMany({ where: { project_id: projectId } }),
+      this.artifacts.list(projectId, { limit: 200 }),
+      this.reports.list(projectId, { limit: 200 }),
+      this.agents.listAgents(projectId),
+    ]);
+    const secretPattern = /(Bearer\s+[^\s;]+|sk-[A-Za-z0-9_-]+|ghp_[A-Za-z0-9_]+|xoxb-[A-Za-z0-9-]+|\b\d{5,}:[A-Za-z0-9_-]+\b|-100\d{6,}|token|secret|chat_id|bot_token|credential|DATABASE_URL|database_url|db_path)/i;
+    const countFindings = (items: unknown[]) => items.filter((item) => secretPattern.test(JSON.stringify(item))).length;
+    return {
+      project_id: projectId,
+      project_scoped: true,
+      raw_secret_values_exposed: false,
+      findings_by_source: {
+        project_config: countFindings([project.channel_config]),
+        tasks: countFindings(tasks),
+        runs: countFindings(runs),
+        artifacts: countFindings(artifacts),
+        reports: countFindings(reports),
+        agents: countFindings(agents),
+      },
+      exposure_policy: 'summaries_only_redacted_no_raw_payloads',
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  async searchProofs(projectId: string, filters?: { query?: string; artifact_type?: string; task_id?: string; run_id?: string; limit?: number }) {
+    await this.getProject(projectId);
+    const [artifacts, reports] = await Promise.all([
+      this.artifacts.list(projectId, { task_id: filters?.task_id, run_id: filters?.run_id, artifact_type: filters?.artifact_type, limit: filters?.limit ?? 100 }),
+      this.reports.list(projectId, { task_id: filters?.task_id, limit: filters?.limit ?? 100 }),
+    ]);
+    const query = filters?.query?.trim().toLowerCase();
+    const proofs = artifacts.map((artifact) => {
+      const proof = safeJson(artifact.proof);
+      const payload = safeJson(artifact.payload_data ?? artifact.payload);
+      return {
+        id: artifact.id,
+        project_id: artifact.project_id,
+        task_id: artifact.task_id,
+        run_id: artifact.run_id,
+        artifact_type: artifact.artifact_type,
+        proof_summary: safeProofSummary((proof as any).summary, (payload as any).summary, (payload as any).result, artifact.path),
+        created_at: artifact.created_at,
+        source: 'artifact',
+      };
+    });
+    const reportProofs = reports.map((report) => ({
+      id: report.id,
+      project_id: report.project_id,
+      task_id: report.task_id,
+      run_id: report.run_id,
+      artifact_type: 'report',
+      proof_summary: safeProofSummary(report.summary, report.message_type),
+      created_at: report.created_at,
+      source: 'report',
+    }));
+    const merged = [...proofs, ...reportProofs].filter((item) => !query || JSON.stringify(item).toLowerCase().includes(query));
+    return merged.slice(0, clampLimit(filters?.limit));
+  }
+
+  async getObservabilityMetrics(projectId: string) {
+    await this.getProject(projectId);
+    const [tasks, runs, artifacts, reports, agents] = await Promise.all([
+      this.tasks.list(projectId),
+      this.prisma.run.findMany({ where: { project_id: projectId } }),
+      this.artifacts.list(projectId, { limit: 200 }),
+      this.reports.list(projectId, { limit: 200 }),
+      this.agents.listAgents(projectId),
+    ]);
+    return {
+      project_id: projectId,
+      project_scoped: true,
+      task_counts_by_status: countBy(tasks, 'status'),
+      run_counts_by_status: countBy(runs, 'status'),
+      proof_counts_by_type: countBy(artifacts, 'artifact_type'),
+      report_counts_by_status: countBy(reports, 'status'),
+      agent_counts_by_status: countBy(agents, 'status'),
+      generated_at: new Date().toISOString(),
+    };
+  }
+
+  async getAgentPerformance(projectId: string) {
+    await this.getProject(projectId);
+    const agents = await this.agents.listAgents(projectId);
+    const runs = await this.prisma.run.findMany({ where: { project_id: projectId } });
+    return agents.map((agent) => {
+      const agentRuns = runs.filter((run) => run.agent_id === agent.id);
+      const successRuns = agentRuns.filter((run) => run.status === 'success').length;
+      const failedRuns = agentRuns.filter((run) => ['failed', 'error'].includes(run.status)).length;
+      return {
+        project_id: projectId,
+        agent_id: agent.agent_id,
+        lane: agent.lane,
+        status: agent.status,
+        total_runs: agentRuns.length,
+        success_runs: successRuns,
+        failed_runs: failedRuns,
+        success_rate: agentRuns.length ? Number((successRuns / agentRuns.length).toFixed(4)) : null,
+        last_heartbeat: agent.last_heartbeat,
+      };
+    });
+  }
+
   async recoverTimeouts(projectId: string, timeoutMinutes: number) {
     await this.getProject(projectId);
     const cutoff = new Date(Date.now() - timeoutMinutes * 60 * 1000);

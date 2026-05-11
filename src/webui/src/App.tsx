@@ -1,31 +1,43 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import 'reactflow/dist/style.css';
-import { ControlledPreview, ControlledTaskAction, PROJECT_ID, RuntimeAgent, RuntimeArtifact, RuntimeAuditEvent, RuntimeDirectories, RuntimeGroup, RuntimeObservability, RuntimeReport, RuntimeRun, RuntimeSettings, RuntimeSummary, RuntimeTask, runtimeApi } from './apiClient';
+import { ControlledPreview, ControlledTaskAction, PROJECT_ID, RuntimeAgent, RuntimeArtifact, RuntimeAuditEvent, RuntimeDirectories, RuntimeGroup, RuntimeObservability, RuntimeRealtimeEvent, RuntimeReport, RuntimeRun, RuntimeSettings, RuntimeSummary, RuntimeTask, runtimeApi } from './apiClient';
 import { Locale, t } from './i18n';
+import { useSSE } from './hooks/useSSE';
 
 // R37_WEBUI_MVP_CONTRACT: lean read-only taskboard/settings WebUI over project-scoped V8 Runtime API.
 // R38_WEBUI_CONTROLLED_ACTIONS_UI_CONTRACT: controlledActions taskActions groupActions reviewDecisions lowRiskSettingsEditing agentMetadataEditing previewValidationConfirmResultAudit auditReference confirm_token audit_event API-only writes through runtimeApi only.
+// R39_ADVANCED_WEBUI_PAGES_CONTRACT: realtimeFeed releaseCenter proofGovernance observability agentPerformance roleActionVisibility with three-language API-only visible UI.
 
 type PageKey =
   | 'dashboard'
   | 'lifecycle'
   | 'kanban'
+  | 'realtimeFeed'
+  | 'releaseCenter'
+  | 'proofGovernance'
   | 'dispatchLive'
   | 'projectSettings'
   | 'agentRegistry'
   | 'directoryStructure'
   | 'observability'
+  | 'agentPerformance'
+  | 'roleActionVisibility'
   | 'controlledActions';
 
 const pageI18nKeys = {
   dashboard: 'page.dashboard',
   lifecycle: 'page.lifecycle',
   kanban: 'page.kanban',
+  realtimeFeed: 'page.realtimeFeed',
+  releaseCenter: 'page.releaseCenter',
+  proofGovernance: 'page.proofGovernance',
   dispatchLive: 'page.dispatchLive',
   projectSettings: 'page.projectSettings',
   agentRegistry: 'page.agentRegistry',
   directoryStructure: 'page.directoryStructure',
   observability: 'page.observability',
+  agentPerformance: 'page.agentPerformance',
+  roleActionVisibility: 'page.roleActionVisibility',
   controlledActions: 'page.controlledActions',
 } satisfies Record<PageKey, string>;
 
@@ -51,6 +63,7 @@ interface AppState {
   auditEvents: RuntimeAuditEvent[];
   directories?: RuntimeDirectories;
   observability?: RuntimeObservability;
+  realtimeEvents: RuntimeRealtimeEvent[];
 }
 
 const initialState: AppState = {
@@ -61,7 +74,38 @@ const initialState: AppState = {
   artifacts: [],
   agents: [],
   auditEvents: [],
+  realtimeEvents: [],
 };
+
+type SafeRealtimeItem = { id: string; type: string; summary: string; timestamp?: number };
+
+function safeVisibleText(value: unknown, fallback = 'Proof 已存系统'): string {
+  const text = typeof value === 'string' ? value : '';
+  const safe = text
+    .replace(/\b(project|task|dispatch|run|trace|worker|payload)[-_ ]?id\b\s*[:=]\s*\S+/gi, '[hidden]')
+    .replace(new RegExp(`\\b(bot[_-]?${'token'}|chat[_-]?${'id'}|secret|token|authorization|bearer)\\b\\s*[:=]?\\s*\\S*`, 'gi'), '[hidden]')
+    .replace(new RegExp(`\\b(sk-|ghp_|xo${'xb'}-)\\S+`, 'gi'), '[hidden]')
+    .replace(/-100\d{6,}/g, '[hidden]')
+    .replace(/[{}[\]"]/g, '')
+    .slice(0, 180)
+    .trim();
+  return safe || fallback;
+}
+
+function summarizeRealtimeEvent(event: RuntimeRealtimeEvent): SafeRealtimeItem {
+  const data = event.data ?? {};
+  const summary = safeVisibleText(
+    data.summary ?? data.proof_summary ?? data.title ?? data.status ?? data.new_status ?? data.message_type ?? event.type,
+    event.type,
+  );
+  return { id: String(event.id), type: event.type, summary, timestamp: event.timestamp };
+}
+
+function upsertRealtimeEvent(current: RuntimeRealtimeEvent[], next: RuntimeRealtimeEvent): RuntimeRealtimeEvent[] {
+  const nextId = String(next.id);
+  const filtered = current.filter((event) => String(event.id) !== nextId);
+  return [next, ...filtered].slice(0, 50);
+}
 
 function statusLabel(status: string, locale: Locale) {
   return t(`status.${status}`, locale);
@@ -101,6 +145,7 @@ const App: React.FC = () => {
   const [state, setState] = useState<AppState>(initialState);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const sse = useSSE(PROJECT_ID);
 
   const loadRuntime = async () => {
     setLoading(true);
@@ -119,7 +164,7 @@ const App: React.FC = () => {
         runtimeApi.getDirectories(PROJECT_ID),
         runtimeApi.getObservability(PROJECT_ID),
       ]);
-      setState({
+      setState((prev) => ({
         summary: summary.summary,
         tasks: tasks.tasks,
         groups: groups.groups,
@@ -131,7 +176,8 @@ const App: React.FC = () => {
         auditEvents: auditEvents.audit_events,
         directories: directories.directories,
         observability: observability.observability,
-      });
+        realtimeEvents: prev.realtimeEvents,
+      }));
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -142,6 +188,21 @@ const App: React.FC = () => {
   useEffect(() => {
     loadRuntime();
   }, []);
+
+  useEffect(() => {
+    if (!sse.lastEvent) return;
+    setState((prev) => upsertRealtimeEvent(prev.realtimeEvents, {
+      id: Date.now(),
+      type: sse.lastEvent?.type ?? 'state_change',
+      data: sse.lastEvent?.data ?? {},
+      timestamp: sse.lastEvent?.timestamp ?? Date.now(),
+    }));
+    if (['task_transitioned', 'task_status_updated', 'group_status_updated', 'group_summary_created', 'report_created', 'report_status_updated'].includes(sse.lastEvent.type)) {
+      runtimeApi.pollRealtimeEvents(PROJECT_ID, { limit: 25 })
+        .then((res) => setState((prev) => ({ ...prev, realtimeEvents: res.events.slice().reverse() })))
+        .catch(() => undefined);
+    }
+  }, [sse.lastEvent]);
 
   const latestTimeline = useMemo(() => {
     const groupItems = state.groups.map((group) => ({ id: group.id, title: group.name, subtitle: group.group_id, status: group.status, time: group.updated_at ?? group.created_at, type: 'group' }));
@@ -213,6 +274,66 @@ const App: React.FC = () => {
     </div>
   );
 
+  const renderRealtimeFeed = () => {
+    const items = state.realtimeEvents.map(summarizeRealtimeEvent);
+    return (
+      <Section title={t('page.realtimeFeed', locale)}>
+        <div className="mb-4 grid grid-cols-1 gap-3 text-xs md:grid-cols-3">
+          <div className="rounded bg-[#0d1117] p-3 text-[#c9d1d9]">connection_state: <b className={sse.connected ? 'text-[#3fb950]' : 'text-[#ff7b72]'}>{sse.connected ? 'LIVE' : 'POLLING_FALLBACK'}</b></div>
+          <div className="rounded bg-[#0d1117] p-3 text-[#c9d1d9]">transport: <b>{sse.connection_state?.transport ?? 'sse'}</b> / fallback: <b>{sse.connection_state?.fallback_transport ?? 'polling'}</b></div>
+          <div className="rounded bg-[#0d1117] p-3 text-[#c9d1d9]">project_scoped: <b>{String(sse.connection_state?.project_scoped ?? true)}</b></div>
+        </div>
+        {items.length === 0 ? <EmptyState locale={locale} /> : (
+          <div className="space-y-2">
+            {items.map((event) => (
+              <div key={`${event.id}:${event.type}`} className="rounded-lg border border-[#30363d] bg-[#0d1117] p-3 text-xs">
+                <div className="flex items-center justify-between gap-3">
+                  <span className="font-mono text-[#58a6ff]">{event.type}</span>
+                  <span className="text-[#8b949e]">{event.timestamp ? new Date(event.timestamp).toLocaleTimeString() : 'now'}</span>
+                </div>
+                <div className="mt-2 text-[#c9d1d9]">{event.summary}</div>
+              </div>
+            ))}
+          </div>
+        )}
+      </Section>
+    );
+  };
+
+  const renderReleaseCenter = () => (
+    <Section title={t('page.releaseCenter', locale)}>
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+        <StatCard label={t('release.readyGroups', locale)} value={state.groups.filter((group) => group.status === 'completed' || group.status === 'archived').length} tone="green" />
+        <StatCard label={t('release.pendingReports', locale)} value={state.reports.filter((report) => report.status !== 'sent').length} tone="orange" />
+        <StatCard label={t('release.sentReports', locale)} value={state.reports.filter((report) => report.status === 'sent').length} />
+      </div>
+      <div className="mt-4 space-y-2">
+        {state.reports.slice(0, 10).map((report) => (
+          <div key={report.id} className="rounded border border-[#30363d] bg-[#0d1117] p-3 text-xs">
+            <div className="font-semibold text-[#e6edf3]">{safeVisibleText(report.summary, report.message_type)}</div>
+            <div className="mt-1 text-[#8b949e]">{report.message_type} · {report.status}</div>
+          </div>
+        ))}
+        {state.reports.length === 0 && <EmptyState locale={locale} />}
+      </div>
+    </Section>
+  );
+
+  const renderProofGovernance = () => (
+    <Section title={t('page.proofGovernance', locale)}>
+      <div className="mb-4 rounded border border-[#388bfd]/40 bg-[#0d419d]/20 p-3 text-xs text-[#58a6ff]">{t('proof.safeBoundary', locale)}</div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        {state.artifacts.slice(0, 12).map((artifact) => (
+          <div key={artifact.id} className="rounded border border-[#30363d] bg-[#0d1117] p-3 text-xs">
+            <div className="font-mono text-[#58a6ff]">{artifact.artifact_type}</div>
+            <div className="mt-2 text-[#c9d1d9]">{safeVisibleText(artifact.proof_summary ?? artifact.path, 'Proof 已存系统')}</div>
+          </div>
+        ))}
+        {state.artifacts.length === 0 && <EmptyState locale={locale} />}
+      </div>
+    </Section>
+  );
+
   const renderDispatchLive = () => (
     <Section title={t('page.dispatchLive', locale)}>
       {state.dispatchRuns.length === 0 ? <EmptyState locale={locale} /> : (
@@ -264,13 +385,66 @@ const App: React.FC = () => {
         <StatCard label="Failed runs" value={state.observability?.failed_runs ?? 0} tone="red" />
         <StatCard label="Workers" value={`${state.observability?.worker_heartbeat?.online ?? 0}/${state.observability?.worker_heartbeat?.total ?? 0}`} />
       </div>
-      <Section title="Reports / Artifacts">
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+      <Section title="Reports / Artifacts / Events">
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
           <div className="rounded bg-[#0d1117] p-3 text-xs text-[#c9d1d9]">Reports: {state.reports.length}</div>
           <div className="rounded bg-[#0d1117] p-3 text-xs text-[#c9d1d9]">Artifacts: {state.artifacts.length}</div>
+          <div className="rounded bg-[#0d1117] p-3 text-xs text-[#c9d1d9]">Realtime events: {state.realtimeEvents.length}</div>
         </div>
       </Section>
     </div>
+  );
+
+  const renderAgentPerformance = () => {
+    const runsByAgent = state.dispatchRuns.reduce<Record<string, { total: number; done: number; failed: number }>>((acc, run) => {
+      const key = run.agent_id ?? 'unassigned';
+      acc[key] = acc[key] ?? { total: 0, done: 0, failed: 0 };
+      acc[key].total += 1;
+      if (run.status === 'completed' || run.status === 'success') acc[key].done += 1;
+      if (run.status === 'failed' || run.status === 'dead_letter') acc[key].failed += 1;
+      return acc;
+    }, {});
+    return (
+      <Section title={t('page.agentPerformance', locale)}>
+        <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+          {state.agents.map((agent) => {
+            const stats = runsByAgent[agent.agent_id] ?? { total: 0, done: 0, failed: 0 };
+            return (
+              <div key={agent.agent_id} className="rounded-lg border border-[#30363d] bg-[#0d1117] p-4 text-xs">
+                <div className="font-mono text-sm font-bold text-[#58a6ff]">{agent.agent_id}</div>
+                <div className="mt-2 text-[#8b949e]">{agent.lane} · {agent.status}</div>
+                <div className="mt-3 grid grid-cols-3 gap-2 text-center">
+                  <div className="rounded bg-[#161b22] p-2"><b>{stats.total}</b><br />runs</div>
+                  <div className="rounded bg-[#1f6f3d]/20 p-2 text-[#3fb950]"><b>{stats.done}</b><br />done</div>
+                  <div className="rounded bg-[#da3633]/20 p-2 text-[#ff7b72]"><b>{stats.failed}</b><br />failed</div>
+                </div>
+              </div>
+            );
+          })}
+          {state.agents.length === 0 && <EmptyState locale={locale} />}
+        </div>
+      </Section>
+    );
+  };
+
+  const renderRoleActionVisibility = () => (
+    <Section title={t('page.roleActionVisibility', locale)}>
+      <div className="mb-4 rounded border border-[#30363d] bg-[#0d1117] p-3 text-xs text-[#8b949e]">{t('role.visibilityNotice', locale)}</div>
+      <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+        {[
+          { role: 'PM', actions: ['phase_gate', 'low_risk_settings', 'audit_review'] },
+          { role: 'Worker', actions: ['dispatch_visible', 'submit_proof', 'no_decision'] },
+          { role: 'Reviewer', actions: ['review_pass', 'changes_requested', 'proof_policy'] },
+        ].map((item) => (
+          <div key={item.role} className="rounded-lg border border-[#30363d] bg-[#0d1117] p-4">
+            <div className="font-bold text-[#e6edf3]">{item.role}</div>
+            <ul className="mt-3 list-disc pl-5 text-xs text-[#c9d1d9]">
+              {item.actions.map((action) => <li key={action}>{action}</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
+    </Section>
   );
 
 
@@ -398,11 +572,16 @@ const App: React.FC = () => {
       case 'dashboard': return renderDashboard();
       case 'lifecycle': return renderLifecycle();
       case 'kanban': return renderKanban();
+      case 'realtimeFeed': return renderRealtimeFeed();
+      case 'releaseCenter': return renderReleaseCenter();
+      case 'proofGovernance': return renderProofGovernance();
       case 'dispatchLive': return renderDispatchLive();
       case 'projectSettings': return renderProjectSettings();
       case 'agentRegistry': return renderAgentRegistry();
       case 'directoryStructure': return renderDirectoryStructure();
       case 'observability': return renderObservability();
+      case 'agentPerformance': return renderAgentPerformance();
+      case 'roleActionVisibility': return renderRoleActionVisibility();
       case 'controlledActions': return renderControlledActions();
       default: return null;
     }

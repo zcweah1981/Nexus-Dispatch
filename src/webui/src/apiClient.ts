@@ -129,6 +129,21 @@ export interface RuntimeAuditEvent {
   created_at?: string;
 }
 
+export interface RuntimeRealtimeEvent {
+  id: number;
+  type: string;
+  data: Record<string, unknown>;
+  timestamp: number;
+}
+
+export interface RuntimeRealtimeConnectionState {
+  transport: 'sse' | 'polling';
+  fallback_transport?: 'polling';
+  project_scoped: boolean;
+  active_connections?: number;
+  retained_events?: number;
+}
+
 export type ControlledTaskAction = 'dispatch' | 'retry' | 'cancel';
 
 export interface ControlledActionRequest {
@@ -224,6 +239,12 @@ export const runtimeApi = {
   },
   listAuditEvents(projectId = PROJECT_ID, options: { action?: string; target_type?: string; target_id?: string; limit?: number } = {}) {
     return requestJson<{ project_id: string; audit_events: RuntimeAuditEvent[]; total: number }>(`/projects/${projectId}/audit-events${query(options)}`);
+  },
+  pollRealtimeEvents(projectId = PROJECT_ID, options: { after?: number; limit?: number } = {}) {
+    return requestJson<{ project_id: string; transport: 'polling'; events: RuntimeRealtimeEvent[]; next_cursor: number; connection_state: RuntimeRealtimeConnectionState }>(`/projects/${projectId}/events/poll${query(options)}`);
+  },
+  getRealtimeConnectionState(projectId = PROJECT_ID) {
+    return requestJson<{ project_id: string; connection_state: RuntimeRealtimeConnectionState }>(`/projects/${projectId}/events/state`);
   },
   controlledTaskAction(projectId = PROJECT_ID, taskId: string, action: ControlledTaskAction, input: ControlledActionRequest) {
     return postJson<ControlledActionResult<{ task: RuntimeTask }>>(`/projects/${projectId}/tasks/${taskId}/${action}`, input);

@@ -52,6 +52,14 @@ export interface SSEEvent {
   timestamp?: number;
 }
 
+export interface SSEConnectionState {
+  transport: 'sse' | 'polling';
+  fallback_transport?: 'polling';
+  project_scoped: boolean;
+  active_connections?: number;
+  retained_events?: number;
+}
+
 export interface SSEState {
   /** Whether the EventSource connection is currently open */
   connected: boolean;
@@ -59,17 +67,25 @@ export interface SSEState {
   lastEvent: SSEEvent | null;
   /** Number of reconnection attempts since last successful connect */
   reconnectCount: number;
+  /** R39 connection state returned by the project-scoped realtime API */
+  connection_state: SSEConnectionState | null;
 }
 
 const SSE_URL = '/api/v1/events/stream';
 const MAX_BACKOFF_MS = 30_000;
 const INITIAL_BACKOFF_MS = 1_000;
 
-export function useSSE(): SSEState {
+function buildProjectScopedSseUrl(projectId: string) {
+  return `${SSE_URL}?project_id=${encodeURIComponent(projectId)}`;
+}
+
+export function useSSE(projectId = 'nexus-dispatch'): SSEState {
+  // R39_REALTIME_PROJECT_SCOPED_STREAM_CONTRACT: EventSource is project-scoped and polling fallback lives in apiClient.pollRealtimeEvents.
   const [state, setState] = useState<SSEState>({
     connected: false,
     lastEvent: null,
     reconnectCount: 0,
+    connection_state: null,
   });
 
   const esRef = useRef<EventSource | null>(null);
@@ -84,7 +100,7 @@ export function useSSE(): SSEState {
       esRef.current = null;
     }
 
-    const es = new EventSource(SSE_URL);
+    const es = new EventSource(buildProjectScopedSseUrl(projectId));
     esRef.current = es;
 
     es.onopen = () => {
@@ -113,12 +129,13 @@ export function useSSE(): SSEState {
     es.onmessage = (rawEvent: MessageEvent) => {
       if (!mountedRef.current) return;
       try {
-        const parsed: SSEEvent = JSON.parse(rawEvent.data);
+        const parsed: SSEEvent & { connection_state?: SSEConnectionState } = JSON.parse(rawEvent.data);
         if (parsed.type !== 'ping') {
           setState(prev => ({
             ...prev,
             connected: true,
             lastEvent: parsed,
+            connection_state: parsed.connection_state ?? prev.connection_state,
           }));
         }
       } catch {
@@ -142,7 +159,7 @@ export function useSSE(): SSEState {
         connect();
       }, delay);
     };
-  }, []);
+  }, [projectId]);
 
   useEffect(() => {
     mountedRef.current = true;
