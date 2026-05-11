@@ -205,6 +205,47 @@ export const runtimeVisibleLanguageUpdateSchema = {
   additionalProperties: false,
 } as const;
 
+const runtimeAuditActorReasonProperties = {
+  actor: { type: 'string', minLength: 1, maxLength: 128 },
+  reason: { type: 'string', minLength: 1, maxLength: 2048 },
+  idempotency_key: { type: 'string', minLength: 1, maxLength: 512 },
+} as const;
+
+export const runtimeControlledTaskActionSchema = {
+  $id: 'runtimeControlledTaskAction',
+  type: 'object',
+  required: ['actor', 'reason'],
+  properties: runtimeAuditActorReasonProperties,
+  additionalProperties: false,
+} as const;
+
+export const runtimeControlledSettingsPatchSchema = {
+  $id: 'runtimeControlledSettingsPatch',
+  type: 'object',
+  required: ['actor', 'reason'],
+  properties: {
+    ...runtimeAuditActorReasonProperties,
+    visible_language: { type: 'string', enum: ['zh-CN', 'en-US'] },
+    display_name: { type: 'string', minLength: 1, maxLength: 256 },
+    docs_url: { type: 'string', minLength: 1, maxLength: 1024 },
+    public_repo_url: { type: 'string', minLength: 1, maxLength: 1024 },
+    enabled_lanes: { type: 'array', items: { type: 'string', minLength: 1, maxLength: 64 }, maxItems: 32 },
+    proof_policy_display_rules: { type: 'object', additionalProperties: true },
+    notification_quiet_mode: { type: 'boolean' },
+    db_path: {},
+    database_url: {},
+    DATABASE_URL: {},
+    secrets: {},
+    bot_token: {},
+    chat_id: {},
+    worker_credentials: {},
+    worker_endpoint_credentials: {},
+    runtime_internal_path: {},
+    deployment_env: {},
+  },
+  additionalProperties: false,
+} as const;
+
 export const runtimeAgentRegisterSchema = {
   $id: 'runtimeAgentRegister',
   type: 'object',

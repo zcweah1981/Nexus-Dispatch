@@ -28,6 +28,8 @@ import {
   runtimeCronjobBindSchema,
   runtimeCronjobStatusUpdateSchema,
   runtimeVisibleLanguageUpdateSchema,
+  runtimeControlledTaskActionSchema,
+  runtimeControlledSettingsPatchSchema,
   runtimeReportCreateSchema,
   runtimeReportStatusUpdateSchema,
   taskTransitionSchema,
@@ -186,6 +188,36 @@ export function createApiRouter(authToken: string = 'valid-token', prismaDal?: P
     }
   });
 
+  router.patch('/runtime/projects/:projectId/settings', validateBody('runtimeControlledSettingsPatch', runtimeControlledSettingsPatchSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    try {
+      const result = await service.updateControlledSettings(projectId, req.body);
+      stateEmitter.emit('state_change', { type: 'audit_event_created', data: { project_id: projectId, audit_event_id: result.audit_event.id, action: result.audit_event.action } });
+      return res.status(200).json(result);
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to update runtime project settings');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/audit-events', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    try {
+      const auditEvents = await service.listAuditEvents(projectId, {
+        action: req.query.action as string | undefined,
+        target_type: req.query.target_type as string | undefined,
+        target_id: req.query.target_id as string | undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+      });
+      return res.status(200).json({ project_id: projectId, audit_events: auditEvents, total: auditEvents.length });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to list runtime project audit events');
+    }
+  });
+
   router.get('/runtime/projects/:projectId/directories', async (req: Request, res: Response) => {
     const service = runtimeServiceOr503(res);
     if (!service) return;
@@ -282,6 +314,48 @@ export function createApiRouter(authToken: string = 'valid-token', prismaDal?: P
       return res.status(200).json({ tasks, total: tasks.length });
     } catch (error: any) {
       return sendRuntimeError(res, error, 'Failed to list pending runtime tasks');
+    }
+  });
+
+  router.post('/runtime/projects/:projectId/tasks/:taskId/dispatch', validateBody('runtimeControlledTaskAction', runtimeControlledTaskActionSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { projectId, taskId } = req.params as { projectId: string; taskId: string };
+    try {
+      const result = await service.controlledTaskAction(projectId, taskId, 'dispatch', req.body);
+      stateEmitter.emit('state_change', { type: 'task_transitioned', data: { project_id: projectId, task_id: taskId, new_status: result.task.status } });
+      stateEmitter.emit('state_change', { type: 'audit_event_created', data: { project_id: projectId, audit_event_id: result.audit_event.id, action: result.audit_event.action } });
+      return res.status(200).json(result);
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to dispatch task through controlled runtime action');
+    }
+  });
+
+  router.post('/runtime/projects/:projectId/tasks/:taskId/retry', validateBody('runtimeControlledTaskAction', runtimeControlledTaskActionSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { projectId, taskId } = req.params as { projectId: string; taskId: string };
+    try {
+      const result = await service.controlledTaskAction(projectId, taskId, 'retry', req.body);
+      stateEmitter.emit('state_change', { type: 'task_transitioned', data: { project_id: projectId, task_id: taskId, new_status: result.task.status } });
+      stateEmitter.emit('state_change', { type: 'audit_event_created', data: { project_id: projectId, audit_event_id: result.audit_event.id, action: result.audit_event.action } });
+      return res.status(200).json(result);
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to retry task through controlled runtime action');
+    }
+  });
+
+  router.post('/runtime/projects/:projectId/tasks/:taskId/cancel', validateBody('runtimeControlledTaskAction', runtimeControlledTaskActionSchema), async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const { projectId, taskId } = req.params as { projectId: string; taskId: string };
+    try {
+      const result = await service.controlledTaskAction(projectId, taskId, 'cancel', req.body);
+      stateEmitter.emit('state_change', { type: 'task_transitioned', data: { project_id: projectId, task_id: taskId, new_status: result.task.status } });
+      stateEmitter.emit('state_change', { type: 'audit_event_created', data: { project_id: projectId, audit_event_id: result.audit_event.id, action: result.audit_event.action } });
+      return res.status(200).json(result);
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to cancel task through controlled runtime action');
     }
   });
 

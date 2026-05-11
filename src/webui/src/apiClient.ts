@@ -118,8 +118,46 @@ export interface RuntimeSummary {
   health?: { api?: string; data_source?: string; project_scoped?: boolean };
 }
 
-async function requestJson<T>(path: string): Promise<T> {
-  const response = await fetch(`${API_BASE}${path}`, { headers: { Accept: 'application/json' } });
+export interface RuntimeAuditEvent {
+  id: string;
+  project_id: string;
+  actor: string;
+  action: string;
+  target_type: string;
+  target_id: string;
+  reason?: string | null;
+  created_at?: string;
+}
+
+export type ControlledTaskAction = 'dispatch' | 'retry' | 'cancel';
+
+export interface ControlledActionRequest {
+  actor: string;
+  reason: string;
+  idempotency_key?: string;
+}
+
+export interface ControlledActionResult<T = unknown> {
+  preview?: ControlledPreview;
+  result?: T;
+  audit_event?: RuntimeAuditEvent;
+  audit_reference?: string;
+  status?: string;
+}
+
+export interface ControlledPreview {
+  action: string;
+  validation: { ok: boolean; warnings: string[]; blockers: string[] };
+  confirm_token: string;
+  expected_api: string;
+  audit_reference: string;
+}
+
+async function requestJson<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...(init.headers || {}) },
+  });
   if (!response.ok) throw new Error(`Runtime API ${response.status}: ${path}`);
   return response.json() as Promise<T>;
 }
@@ -133,6 +171,26 @@ function query(params: Record<string, string | number | boolean | undefined | nu
   return serialized ? `?${serialized}` : '';
 }
 
+function postJson<T>(path: string, body: unknown): Promise<T> {
+  return requestJson<T>(path, { method: 'POST', body: JSON.stringify(body) });
+}
+
+function patchJson<T>(path: string, body: unknown): Promise<T> {
+  return requestJson<T>(path, { method: 'PATCH', body: JSON.stringify(body) });
+}
+
+function buildPreview(action: string, expectedApi: string, reason: string): ControlledPreview {
+  const blockers = reason.trim().length === 0 ? ['reason_required'] : [];
+  return {
+    action,
+    validation: { ok: blockers.length === 0, warnings: [], blockers },
+    confirm_token: blockers.length === 0 ? `confirm:${action}` : '',
+    expected_api: expectedApi,
+    audit_reference: 'audit_event_pending',
+  };
+}
+
+// R38_CONTROLLED_ACTIONS_API_CLIENT_CONTRACT: every controlled write goes through this Runtime API client boundary.
 export const runtimeApi = {
   getSummary(projectId = PROJECT_ID) {
     return requestJson<{ summary: RuntimeSummary }>(`/projects/${projectId}/summary`);
@@ -163,5 +221,23 @@ export const runtimeApi = {
   },
   getObservability(projectId = PROJECT_ID) {
     return requestJson<{ observability: RuntimeObservability }>(`/projects/${projectId}/observability`);
+  },
+  listAuditEvents(projectId = PROJECT_ID, options: { action?: string; target_type?: string; target_id?: string; limit?: number } = {}) {
+    return requestJson<{ project_id: string; audit_events: RuntimeAuditEvent[]; total: number }>(`/projects/${projectId}/audit-events${query(options)}`);
+  },
+  controlledTaskAction(projectId = PROJECT_ID, taskId: string, action: ControlledTaskAction, input: ControlledActionRequest) {
+    return postJson<ControlledActionResult<{ task: RuntimeTask }>>(`/projects/${projectId}/tasks/${taskId}/${action}`, input);
+  },
+  updateLowRiskSettings(projectId = PROJECT_ID, input: ControlledActionRequest & { visible_language?: string }) {
+    return patchJson<ControlledActionResult<{ settings: RuntimeSettings }>>(`/projects/${projectId}/settings`, input);
+  },
+  previewControlledAction(action: string, expectedApi: string, reason: string) {
+    return buildPreview(action, expectedApi, reason);
+  },
+  confirmControlledAction<T>(preview: ControlledPreview, execute: () => Promise<T>): Promise<T> {
+    if (!preview.validation.ok || !preview.confirm_token) {
+      return Promise.reject(new Error('controlled_action_validation_failed'));
+    }
+    return execute();
   },
 };

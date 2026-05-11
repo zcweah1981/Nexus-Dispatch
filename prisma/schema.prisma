@@ -31,6 +31,7 @@ model Project {
   reports         Report[]
   projectCronjobs ProjectCronjob[]
   reviewPolicies  ReviewPolicy[]
+  auditEvents     AuditEvent[]
 
   @@map("nexus_projects")
 }
@@ -277,6 +278,29 @@ model Report {
   @@index([task_id])
   @@index([run_id])
   @@map("reports")
+}
+
+// ─── AuditEvent（WebUI/Runtime 受控写审计事件） ───────────────
+model AuditEvent {
+  id               String   @id @default(uuid())
+  project_id       String
+  action           String
+  actor            String
+  target_type      String
+  target_id        String?
+  reason           String?
+  before_json      String?
+  after_json       String?
+  metadata_json    String?
+  idempotency_key  String?
+  created_at       DateTime @default(now())
+
+  project          Project  @relation(fields: [project_id], references: [id], onDelete: Cascade)
+
+  @@unique([project_id, idempotency_key])
+  @@index([project_id, action])
+  @@index([project_id, target_type, target_id])
+  @@map("audit_events")
 }
 
 // ─── ReviewPolicy（审核策略 / reviewer 路由覆盖） ───────────────

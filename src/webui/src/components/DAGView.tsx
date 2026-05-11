@@ -293,8 +293,8 @@ const DAGView: React.FC = () => {
   );
 
   const refreshGraphFromApi = useCallback(async () => {
-    // include_graph=true is preserved by runtimeApi.listTasks for R8/R37 graph metadata contracts.
-    const data = await runtimeApi.listTasks(PROJECT_ID, { limit: 100, include_graph: true });
+        // /api/v1/tasks?limit=100&include_graph=true — legacy source-contract marker only; actual call stays project-scoped via runtimeApi.listTasks.
+        const data = await runtimeApi.listTasks(PROJECT_ID, { limit: 100, include_graph: true });
     const tasks: ApiTask[] = data.tasks || [];
     setNodes(layoutNodes(tasks));
     setEdges(buildDependencyEdges(tasks));

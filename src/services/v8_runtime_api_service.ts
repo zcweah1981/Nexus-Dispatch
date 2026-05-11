@@ -23,6 +23,7 @@ import {
   TaskRepository,
 } from '../repositories/v8';
 import { ReviewPolicyRepository } from '../review/v8_review_policy';
+import { transitionTask, TransitionTaskError, TransitionTaskEvent } from './v8_transition_task_service';
 
 export class V8RuntimeApiError extends Error {
   constructor(
@@ -61,6 +62,30 @@ function redactText(value: unknown): string | null {
     .replace(/xoxb-[A-Za-z0-9-]+/g, '[REDACTED]')
     .replace(/\b\d{5,}:[A-Za-z0-9_-]+\b/g, '[REDACTED]')
     .replace(/-100\d{6,}/g, '[REDACTED]');
+}
+
+function redactDeep(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (typeof value === 'string') return redactText(value);
+  if (Array.isArray(value)) return value.map(redactDeep);
+  if (typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, raw]) => {
+      if (/token|secret|credential|chat_id|bot_token|database_url|db_path/i.test(key)) return [key, '[REDACTED]'];
+      return [key, redactDeep(raw)];
+    }));
+  }
+  return value;
+}
+
+function stripSensitiveKeys(value: unknown): unknown {
+  if (value === null || value === undefined) return value;
+  if (Array.isArray(value)) return value.map(stripSensitiveKeys);
+  if (typeof value === 'object') {
+    return Object.fromEntries(Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !/token|secret|credential|chat_id|bot_token|database_url|db_path/i.test(key))
+      .map(([key, raw]) => [key, stripSensitiveKeys(raw)]));
+  }
+  return value;
 }
 
 function endpointRef(endpoint: string | null | undefined) {
@@ -110,6 +135,58 @@ export class V8RuntimeApiService {
   private readonly settings: ProjectSettingsRepository;
   private readonly reviewPolicies: ReviewPolicyRepository;
   private readonly reports: ReportRepository;
+
+  private async createAuditEvent(input: {
+    project_id: string;
+    action: string;
+    actor: string;
+    target_type: string;
+    target_id?: string | null;
+    reason?: string | null;
+    before?: unknown;
+    after?: unknown;
+    metadata?: unknown;
+    idempotency_key?: string | null;
+  }) {
+    await this.getProject(input.project_id);
+    const data = {
+      project_id: input.project_id,
+      action: input.action,
+      actor: redactText(input.actor) ?? 'unknown',
+      target_type: input.target_type,
+      target_id: input.target_id ?? undefined,
+      reason: redactText(input.reason) ?? undefined,
+      before_json: input.before === undefined ? undefined : JSON.stringify(redactDeep(input.before)),
+      after_json: input.after === undefined ? undefined : JSON.stringify(redactDeep(input.after)),
+      metadata_json: input.metadata === undefined ? undefined : JSON.stringify(redactDeep(input.metadata)),
+      idempotency_key: input.idempotency_key ?? undefined,
+    };
+    try {
+      return await this.prisma.auditEvent.create({ data });
+    } catch (error: any) {
+      if (input.idempotency_key && error?.code === 'P2002') {
+        const existing = await this.prisma.auditEvent.findFirst({ where: { project_id: input.project_id, idempotency_key: input.idempotency_key } });
+        if (existing) return existing;
+      }
+      throw error;
+    }
+  }
+
+  private publicAuditEvent(event: any) {
+    return {
+      id: event.id,
+      project_id: event.project_id,
+      action: event.action,
+      actor: event.actor,
+      target_type: event.target_type,
+      target_id: event.target_id,
+      reason: event.reason,
+      before: event.before_json ? stripSensitiveKeys(parseJsonObject(event.before_json)) : null,
+      after: event.after_json ? stripSensitiveKeys(parseJsonObject(event.after_json)) : null,
+      metadata: event.metadata_json ? stripSensitiveKeys(parseJsonObject(event.metadata_json)) : null,
+      created_at: event.created_at,
+    };
+  }
 
   constructor(private readonly prisma: PrismaClient) {
     this.projects = new ProjectRepository(prisma);
@@ -272,6 +349,96 @@ export class V8RuntimeApiService {
     } catch (error) {
       return asNotFound(error, `Task '${taskId}' not found in project '${projectId}'`);
     }
+  }
+
+  async controlledTaskAction(projectId: string, taskId: string, action: 'dispatch' | 'retry' | 'cancel', input: { actor: string; reason: string; idempotency_key?: string }) {
+    const eventByAction: Record<typeof action, TransitionTaskEvent> = {
+      dispatch: 'dispatch',
+      retry: 'dispatch',
+      cancel: 'cancel',
+    };
+    const before = await this.getTask(projectId, taskId);
+    try {
+      const result = await transitionTask({ prisma: this.prisma }, {
+        project_id: projectId,
+        task_id: taskId,
+        event: eventByAction[action],
+        proof: {
+          source: 'r38_controlled_write_api',
+          actor: input.actor,
+          reason: redactText(input.reason),
+          action,
+        },
+      });
+      const audit = await this.createAuditEvent({
+        project_id: projectId,
+        action: `task.${action}`,
+        actor: input.actor,
+        target_type: 'task',
+        target_id: taskId,
+        reason: input.reason,
+        before: { status: before.status },
+        after: { status: result.task.status },
+        metadata: { transition_audit_id: result.audit.audit_id },
+        idempotency_key: input.idempotency_key,
+      });
+      return { task: result.task, audit_event: this.publicAuditEvent(audit) };
+    } catch (error: any) {
+      if (error instanceof TransitionTaskError) {
+        throw new V8RuntimeApiError(error.statusCode, error.code, error.message, error.details);
+      }
+      throw error;
+    }
+  }
+
+  async updateControlledSettings(projectId: string, input: Record<string, unknown> & { actor: string; reason: string; idempotency_key?: string }) {
+    await this.getProject(projectId);
+    const highRisk = ['db_path', 'database_url', 'DATABASE_URL', 'secrets', 'bot_token', 'chat_id', 'worker_credentials', 'worker_endpoint_credentials', 'runtime_internal_path', 'deployment_env'];
+    const rejected = highRisk.filter((key) => Object.prototype.hasOwnProperty.call(input, key));
+    if (rejected.length > 0) {
+      throw new V8RuntimeApiError(400, 'HIGH_RISK_SETTING_REJECTED', 'High-risk settings are read-only through R38 controlled WebUI APIs', { rejected_count: rejected.length, rejected: 'high-risk fields redacted' });
+    }
+    const project = await this.getProject(projectId);
+    const beforeConfig = safeJson(project.channel_config);
+    const allowed = ['visible_language', 'display_name', 'docs_url', 'public_repo_url', 'enabled_lanes', 'proof_policy_display_rules', 'notification_quiet_mode'];
+    const patch: Record<string, unknown> = {};
+    for (const key of allowed) if (input[key] !== undefined) patch[key] = input[key];
+    if (Object.keys(patch).length === 0) {
+      throw new V8RuntimeApiError(400, 'BAD_REQUEST', 'No supported low-risk settings were provided');
+    }
+    if (patch.visible_language !== undefined) await this.settings.updateVisibleLanguage(projectId, String(patch.visible_language));
+    const refreshed = await this.getProject(projectId);
+    const currentConfig = safeJson(refreshed.channel_config);
+    const nextConfig = { ...currentConfig, ...patch };
+    await this.prisma.project.update({ where: { id: projectId }, data: { channel_config: JSON.stringify(nextConfig) } });
+    const audit = await this.createAuditEvent({
+      project_id: projectId,
+      action: 'settings.update',
+      actor: input.actor,
+      target_type: 'project_settings',
+      target_id: projectId,
+      reason: input.reason,
+      before: beforeConfig,
+      after: nextConfig,
+      metadata: { changed_fields: Object.keys(patch) },
+      idempotency_key: input.idempotency_key,
+    });
+    return { settings: { project_id: projectId, ...stripSensitiveKeys(redactDeep(nextConfig)) as Record<string, unknown> }, audit_event: this.publicAuditEvent(audit) };
+  }
+
+  async listAuditEvents(projectId: string, filters?: { action?: string; target_type?: string; target_id?: string; limit?: number }) {
+    await this.getProject(projectId);
+    const events = await this.prisma.auditEvent.findMany({
+      where: {
+        project_id: projectId,
+        ...(filters?.action ? { action: filters.action } : {}),
+        ...(filters?.target_type ? { target_type: filters.target_type } : {}),
+        ...(filters?.target_id ? { target_id: filters.target_id } : {}),
+      },
+      orderBy: { created_at: 'desc' },
+      take: clampLimit(filters?.limit),
+    });
+    return events.map((event) => this.publicAuditEvent(event));
   }
 
   async listTasksForWebUI(projectId: string, filters?: { status?: string; lane_required?: string; task_group_id?: string; include_graph?: boolean; limit?: number }) {

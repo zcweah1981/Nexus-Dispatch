@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import 'reactflow/dist/style.css';
-import { PROJECT_ID, RuntimeAgent, RuntimeArtifact, RuntimeDirectories, RuntimeGroup, RuntimeObservability, RuntimeReport, RuntimeRun, RuntimeSettings, RuntimeSummary, RuntimeTask, runtimeApi } from './apiClient';
+import { ControlledPreview, ControlledTaskAction, PROJECT_ID, RuntimeAgent, RuntimeArtifact, RuntimeAuditEvent, RuntimeDirectories, RuntimeGroup, RuntimeObservability, RuntimeReport, RuntimeRun, RuntimeSettings, RuntimeSummary, RuntimeTask, runtimeApi } from './apiClient';
 import { Locale, t } from './i18n';
 
 // R37_WEBUI_MVP_CONTRACT: lean read-only taskboard/settings WebUI over project-scoped V8 Runtime API.
+// R38_WEBUI_CONTROLLED_ACTIONS_UI_CONTRACT: controlledActions taskActions groupActions reviewDecisions lowRiskSettingsEditing agentMetadataEditing previewValidationConfirmResultAudit auditReference confirm_token audit_event API-only writes through runtimeApi only.
 
 type PageKey =
   | 'dashboard'
@@ -13,7 +14,8 @@ type PageKey =
   | 'projectSettings'
   | 'agentRegistry'
   | 'directoryStructure'
-  | 'observability';
+  | 'observability'
+  | 'controlledActions';
 
 const pageI18nKeys = {
   dashboard: 'page.dashboard',
@@ -24,6 +26,7 @@ const pageI18nKeys = {
   agentRegistry: 'page.agentRegistry',
   directoryStructure: 'page.directoryStructure',
   observability: 'page.observability',
+  controlledActions: 'page.controlledActions',
 } satisfies Record<PageKey, string>;
 
 const pageKeys = Object.keys(pageI18nKeys) as PageKey[];
@@ -45,6 +48,7 @@ interface AppState {
   artifacts: RuntimeArtifact[];
   settings?: RuntimeSettings;
   agents: RuntimeAgent[];
+  auditEvents: RuntimeAuditEvent[];
   directories?: RuntimeDirectories;
   observability?: RuntimeObservability;
 }
@@ -56,6 +60,7 @@ const initialState: AppState = {
   reports: [],
   artifacts: [],
   agents: [],
+  auditEvents: [],
 };
 
 function statusLabel(status: string, locale: Locale) {
@@ -101,7 +106,7 @@ const App: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [summary, tasks, groups, dispatchLive, reports, artifacts, settings, agents, directories, observability] = await Promise.all([
+      const [summary, tasks, groups, dispatchLive, reports, artifacts, settings, agents, auditEvents, directories, observability] = await Promise.all([
         runtimeApi.getSummary(PROJECT_ID),
         runtimeApi.listTasks(PROJECT_ID, { include_graph: true, limit: 100 }),
         runtimeApi.listGroups(PROJECT_ID, { include_tasks: true, limit: 100 }),
@@ -110,6 +115,7 @@ const App: React.FC = () => {
         runtimeApi.listArtifacts(PROJECT_ID, { limit: 50 }),
         runtimeApi.getSettings(PROJECT_ID),
         runtimeApi.listAgents(PROJECT_ID),
+        runtimeApi.listAuditEvents(PROJECT_ID, { limit: 20 }),
         runtimeApi.getDirectories(PROJECT_ID),
         runtimeApi.getObservability(PROJECT_ID),
       ]);
@@ -122,6 +128,7 @@ const App: React.FC = () => {
         artifacts: artifacts.artifacts,
         settings: settings.settings,
         agents: agents.agents,
+        auditEvents: auditEvents.audit_events,
         directories: directories.directories,
         observability: observability.observability,
       });
@@ -266,6 +273,124 @@ const App: React.FC = () => {
     </div>
   );
 
+
+  const [controlledReason, setControlledReason] = useState('R38 WebUI controlled action');
+  const [controlledResult, setControlledResult] = useState<string>('');
+
+  const firstTaskByStatus = (statuses: string[]) => state.tasks.find((task) => statuses.includes(task.status));
+
+  const makePreview = (action: string, expectedApi: string): ControlledPreview => (
+    runtimeApi.previewControlledAction(action, expectedApi, controlledReason)
+  );
+
+  const runTaskAction = async (action: ControlledTaskAction, task?: RuntimeTask) => {
+    if (!task) {
+      setControlledResult('validation:blocker:no_task_available');
+      return;
+    }
+    const preview = makePreview(`task.${action}`, `/projects/${PROJECT_ID}/tasks/${task.id}/${action}`);
+    try {
+      const response = await runtimeApi.confirmControlledAction(preview, () => runtimeApi.controlledTaskAction(PROJECT_ID, task.id, action, {
+        actor: 'pm-webui',
+        reason: controlledReason,
+        idempotency_key: `webui-${action}-${task.id}`,
+      }));
+      setControlledResult(`${response.audit_event?.id ?? 'audit_event'}:${response.status ?? 'ok'}`);
+      await loadRuntime();
+    } catch (err) {
+      setControlledResult(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const runSettingsUpdate = async () => {
+    const nextLanguage = locale === 'en' ? 'zh-CN' : 'en-US';
+    const preview = makePreview('settings.visible_language', `/projects/${PROJECT_ID}/settings`);
+    try {
+      const response = await runtimeApi.confirmControlledAction(preview, () => runtimeApi.updateLowRiskSettings(PROJECT_ID, {
+        actor: 'pm-webui',
+        reason: controlledReason,
+        visible_language: nextLanguage,
+        idempotency_key: `webui-settings-${nextLanguage}`,
+      }));
+      setControlledResult(`${response.audit_event?.id ?? 'audit_event'}:${response.status ?? 'ok'}`);
+      await loadRuntime();
+    } catch (err) {
+      setControlledResult(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const ActionCard = ({ title, preview, children }: { title: string; preview: ControlledPreview; children: React.ReactNode }) => (
+    <div className="rounded-lg border border-[#30363d] bg-[#0d1117] p-4">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h3 className="text-sm font-bold text-[#e6edf3]">{title}</h3>
+        <span className={`rounded-full px-2 py-0.5 text-[10px] font-mono ${preview.validation.ok ? 'bg-[#1f2d23] text-[#3fb950]' : 'bg-[#2d1f1f] text-[#f85149]'}`}>{t('controlled.validation', locale)}:{preview.validation.ok ? 'ok' : 'blocked'}</span>
+      </div>
+      <div className="grid grid-cols-1 gap-2 text-[11px] text-[#8b949e] md:grid-cols-2">
+        <div><b>{t('controlled.preview', locale)}</b>: {preview.action}</div>
+        <div><b>{t('controlled.confirm', locale)}</b>: {preview.confirm_token || 'blocked'}</div>
+        <div className="md:col-span-2"><b>API</b>: <span className="font-mono text-[#58a6ff]">{preview.expected_api}</span></div>
+        <div className="md:col-span-2"><b>{t('controlled.auditReference', locale)}</b>: {preview.audit_reference}</div>
+      </div>
+      <div className="mt-4 flex flex-wrap gap-2">{children}</div>
+    </div>
+  );
+
+  const renderControlledActions = () => {
+    const dispatchTask = firstTaskByStatus(['created']);
+    const retryTask = firstTaskByStatus(['retry_ready']);
+    const cancelTask = firstTaskByStatus(['created', 'dispatched', 'running', 'retry_ready', 'blocked']);
+    const group = state.groups[0];
+    const reviewTask = firstTaskByStatus(['review_pending', 'completion_pending']);
+    const agent = state.agents[0];
+    const taskActions = ['dispatch', 'retry', 'cancel'];
+    const groupActions = ['archive', 'thaw'];
+    const reviewDecisions = ['PASS', 'CHANGES_REQUESTED', 'FAIL'];
+    const lowRiskSettingsEditing = ['visible_language'];
+    const agentMetadataEditing = ['dialect', 'status_note'];
+    const previewValidationConfirmResultAudit = 'preview -> validation -> confirm -> result -> auditReference';
+    const auditReference = state.auditEvents[0]?.id ?? 'audit_event_pending';
+
+    return (
+      <div className="space-y-5">
+        <Section title={t('page.controlledActions', locale)}>
+          <div className="mb-4 rounded border border-[#388bfd]/40 bg-[#0d419d]/20 p-3 text-xs text-[#58a6ff]">{t('controlled.apiOnly', locale)} · {previewValidationConfirmResultAudit} · auditReference={auditReference}</div>
+          <label className="mb-4 block text-xs text-[#8b949e]">
+            {t('controlled.reason', locale)}
+            <input value={controlledReason} onChange={(event) => setControlledReason(event.target.value)} className="mt-1 w-full rounded border border-[#30363d] bg-[#0d1117] px-3 py-2 text-[#e6edf3]" />
+          </label>
+          <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+            <ActionCard title={t('controlled.taskActions', locale)} preview={makePreview('task.dispatch', `/projects/${PROJECT_ID}/tasks/${dispatchTask?.id ?? 'task'}/dispatch`)}>
+              <button onClick={() => runTaskAction('dispatch', dispatchTask)} className="rounded bg-[#238636] px-3 py-1 text-xs font-bold text-white">{t('controlled.execute', locale)} dispatch</button>
+              <button onClick={() => runTaskAction('retry', retryTask)} className="rounded bg-[#1f6feb] px-3 py-1 text-xs font-bold text-white">{t('controlled.execute', locale)} retry</button>
+              <button onClick={() => runTaskAction('cancel', cancelTask)} className="rounded bg-[#da3633] px-3 py-1 text-xs font-bold text-white">{t('controlled.execute', locale)} cancel</button>
+              <span className="text-[11px] text-[#8b949e]">taskActions={taskActions.join('/')}</span>
+            </ActionCard>
+
+            <ActionCard title={t('controlled.groupActions', locale)} preview={makePreview('group.archive', `/projects/${PROJECT_ID}/groups/${group?.group_id ?? 'group'}/archive`)}>
+              <button disabled className="rounded border border-[#30363d] px-3 py-1 text-xs text-[#8b949e]">{t('controlled.notYet', locale)}</button>
+              <span className="text-[11px] text-[#8b949e]">groupActions={groupActions.join('/')} · target={group?.name ?? 'no_group'}</span>
+            </ActionCard>
+
+            <ActionCard title={t('controlled.reviewDecisions', locale)} preview={makePreview('review.PASS', `/projects/${PROJECT_ID}/tasks/${reviewTask?.id ?? 'review-task'}/review-decision`)}>
+              <button disabled className="rounded border border-[#30363d] px-3 py-1 text-xs text-[#8b949e]">{t('controlled.notYet', locale)}</button>
+              <span className="text-[11px] text-[#8b949e]">reviewDecisions={reviewDecisions.join('/')} · target={reviewTask?.title ?? 'no_review_task'}</span>
+            </ActionCard>
+
+            <ActionCard title={t('controlled.lowRiskSettingsEditing', locale)} preview={makePreview('settings.visible_language', `/projects/${PROJECT_ID}/settings`)}>
+              <button onClick={runSettingsUpdate} className="rounded bg-[#238636] px-3 py-1 text-xs font-bold text-white">{t('controlled.execute', locale)} {lowRiskSettingsEditing.join('/')}</button>
+            </ActionCard>
+
+            <ActionCard title={t('controlled.agentMetadataEditing', locale)} preview={makePreview('agent.metadata', `/projects/${PROJECT_ID}/agents/${agent?.agent_id ?? 'agent'}`)}>
+              <button disabled className="rounded border border-[#30363d] px-3 py-1 text-xs text-[#8b949e]">{t('controlled.notYet', locale)}</button>
+              <span className="text-[11px] text-[#8b949e]">agentMetadataEditing={agentMetadataEditing.join('/')} · target={agent?.agent_id ?? 'no_agent'}</span>
+            </ActionCard>
+          </div>
+          <div className="mt-4 rounded bg-[#0d1117] p-3 text-xs text-[#c9d1d9]"><b>{t('controlled.result', locale)}</b>: {controlledResult || 'pending'} · <b>{t('controlled.auditReference', locale)}</b>: {auditReference}</div>
+        </Section>
+      </div>
+    );
+  };
+
   const renderPage = () => {
     if (loading) return <div className="p-8 text-[#8b949e]">Loading Runtime API...</div>;
     if (error) return <div className="m-8 rounded border border-[#f85149] bg-[#2d1f1f] p-4 text-[#ff7b72]">{error}</div>;
@@ -278,6 +403,7 @@ const App: React.FC = () => {
       case 'agentRegistry': return renderAgentRegistry();
       case 'directoryStructure': return renderDirectoryStructure();
       case 'observability': return renderObservability();
+      case 'controlledActions': return renderControlledActions();
       default: return null;
     }
   };
