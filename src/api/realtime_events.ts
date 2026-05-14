@@ -19,7 +19,12 @@ export class RealtimeEventHub {
   private connections = new Map<string, RealtimeConnection>();
   private nextEventId = 1;
 
-  constructor(private readonly maxEvents = 500) {}
+  private maxBufferedEvents = 500;
+  private droppedEventsCount = 0;
+
+  constructor(maxEvents = 500) {
+    this.maxBufferedEvents = maxEvents;
+  }
 
   record(rawEvent: any): RuntimeRealtimeEvent {
     const event: RuntimeRealtimeEvent = {
@@ -29,8 +34,9 @@ export class RealtimeEventHub {
       timestamp: typeof rawEvent?.timestamp === 'number' ? rawEvent.timestamp : Date.now(),
     };
     this.events.push(event);
-    if (this.events.length > this.maxEvents) {
-      this.events.splice(0, this.events.length - this.maxEvents);
+    if (this.events.length > this.maxBufferedEvents) {
+      this.droppedEventsCount += (this.events.length - this.maxBufferedEvents);
+      this.events.splice(0, this.events.length - this.maxBufferedEvents);
     }
     return event;
   }
@@ -70,6 +76,7 @@ export class RealtimeEventHub {
       fallback_transport: 'polling',
       project_scoped: true,
       active_connections: scopedConnections.length,
+      dropped_events: this.droppedEventsCount,
       active_connection_ids: scopedConnections.map((conn) => conn.connection_id),
       retained_events: this.events.filter((event) => this.shouldDeliver(event, projectId)).length,
     };

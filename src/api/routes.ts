@@ -229,6 +229,36 @@ export function createApiRouter(authToken: string = 'valid-token', prismaDal?: P
     }
   });
 
+
+  router.get('/runtime/projects/:projectId/ops/status', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    try {
+      const opsStatus = await service.getOpsStatus(projectId);
+      return res.status(200).json({ ops_status: opsStatus });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to get runtime ops status');
+    }
+  });
+
+  router.get('/runtime/projects/:projectId/templates', async (req: Request, res: Response) => {
+    const service = runtimeServiceOr503(res);
+    if (!service) return;
+    const projectId = req.params.projectId as string;
+    try {
+      const templates = await service.listRuntimeTemplates(projectId, {
+        category: req.query.category as string | undefined,
+        limit: req.query.limit ? Number(req.query.limit) : undefined,
+        offset: req.query.offset ? Number(req.query.offset) : undefined,
+      });
+      const offset = req.query.offset ? Number(req.query.offset) : 0;
+      return res.status(200).json({ project_id: projectId, templates, total: templates.length, next_cursor: String(offset + templates.length) });
+    } catch (error: any) {
+      return sendRuntimeError(res, error, 'Failed to list runtime templates');
+    }
+  });
+
   router.get('/runtime/projects/:projectId/observability', async (req: Request, res: Response) => {
     const service = runtimeServiceOr503(res);
     if (!service) return;

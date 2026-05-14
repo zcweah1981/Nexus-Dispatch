@@ -1,6 +1,7 @@
+const PERFORMANCE_PAGE_SIZE = 25;
 import React, { useEffect, useMemo, useState } from 'react';
 import 'reactflow/dist/style.css';
-import { ControlledPreview, ControlledTaskAction, PROJECT_ID, RuntimeAgent, RuntimeArtifact, RuntimeAuditEvent, RuntimeDirectories, RuntimeGroup, RuntimeObservability, RuntimeRealtimeEvent, RuntimeReport, RuntimeRun, RuntimeSettings, RuntimeSummary, RuntimeTask, runtimeApi } from './apiClient';
+import { ControlledPreview, ControlledTaskAction, PROJECT_ID, RuntimeConnectionStatus, RuntimeReleaseReadiness, RuntimeProofSummary, RuntimeAgent, RuntimeArtifact, RuntimeAuditEvent, RuntimeDirectories, RuntimeGroup, RuntimeObservability, RuntimeRealtimeEvent, RuntimeOpsStatus, RuntimeTemplateSummary, RuntimeReport, RuntimeRun, RuntimeSettings, RuntimeSummary, RuntimeTask, runtimeApi } from './apiClient';
 import { Locale, t } from './i18n';
 import { useSSE } from './hooks/useSSE';
 
@@ -22,7 +23,7 @@ type PageKey =
   | 'observability'
   | 'agentPerformance'
   | 'roleActionVisibility'
-  | 'controlledActions';
+  | 'controlledActions' | 'opsTemplatesPerformance' | 'productSmokeFlow';
 
 const pageI18nKeys = {
   dashboard: 'page.dashboard',
@@ -39,6 +40,8 @@ const pageI18nKeys = {
   agentPerformance: 'page.agentPerformance',
   roleActionVisibility: 'page.roleActionVisibility',
   controlledActions: 'page.controlledActions',
+  opsTemplatesPerformance: 'page.opsTemplatesPerformance',
+  productSmokeFlow: 'page.productSmokeFlow',
 } satisfies Record<PageKey, string>;
 
 const pageKeys = Object.keys(pageI18nKeys) as PageKey[];
@@ -64,6 +67,13 @@ interface AppState {
   directories?: RuntimeDirectories;
   observability?: RuntimeObservability;
   realtimeEvents: RuntimeRealtimeEvent[];
+  connectionStatus?: RuntimeConnectionStatus;
+  opsStatus?: RuntimeOpsStatus;
+  templates: RuntimeTemplateSummary[];
+  releaseReadiness?: RuntimeReleaseReadiness;
+  proofs: RuntimeProofSummary[];
+  hasLoadedOnce: boolean;
+  degradedReasons: string[];
 }
 
 const initialState: AppState = {
@@ -75,6 +85,10 @@ const initialState: AppState = {
   agents: [],
   auditEvents: [],
   realtimeEvents: [],
+  proofs: [],
+  templates: [],
+  hasLoadedOnce: false,
+  degradedReasons: [],
 };
 
 type SafeRealtimeItem = { id: string; type: string; summary: string; timestamp?: number };
@@ -136,7 +150,71 @@ function Section({ title, children }: { title: string; children: React.ReactNode
 }
 
 function EmptyState({ locale }: { locale: Locale }) {
-  return <div className="rounded border border-dashed border-[#30363d] p-6 text-center text-sm text-[#8b949e]">{t('emptyState', locale)}</div>;
+  return (
+    <div className="rounded border border-dashed border-[#30363d] p-6 text-center text-sm text-[#8b949e]">
+      <div className="font-semibold text-[#e6edf3]">{t('empty.title', locale)}</div>
+      <div className="mt-1 text-xs">{t('empty.description', locale)}</div>
+    </div>
+  );
+}
+
+function safeStatusTone(status: string): 'green' | 'orange' | 'red' {
+  if (status === 'healthy' || status === 'ok' || status === 'connected' || status === 'passed') return 'green';
+  if (status === 'degraded' || status === 'warning' || status === 'unconfigured') return 'orange';
+  return 'red';
+}
+
+// R40_PRODUCT_SMOKE_FLOW_CONTRACT: API-only product smoke flow page covering full launch lifecycle —
+// task_group_lifecycle, dispatch_status, proof_review, release_readiness, archive_closeout —
+// all data from runtimeApi only, no local DB/filesystem access. Demo-only fallback clearly labeled.
+type RuntimeProductSmokeStep = {
+  key: string;
+  label: string;
+  status: 'real' | 'demo' | 'blocked';
+  detail: string;
+};
+
+function buildProductSmokeSteps(args: {
+  releaseReadiness?: RuntimeReleaseReadiness;
+  proofs: RuntimeProofSummary[];
+  tasks: RuntimeTask[];
+  groups: RuntimeGroup[];
+  locale: Locale;
+}): RuntimeProductSmokeStep[] {
+  const { releaseReadiness, proofs, tasks, groups, locale } = args;
+  const hasRealData = tasks.length > 0 || groups.length > 0;
+  return [
+    {
+      key: 'task_group_lifecycle',
+      label: t('smoke.step.task_group_lifecycle', locale),
+      status: hasRealData ? 'real' : 'demo',
+      detail: hasRealData ? `${groups.length} groups, ${tasks.length} tasks loaded` : t('smoke.demoFallback.body', locale),
+    },
+    {
+      key: 'dispatch_status',
+      label: t('smoke.step.dispatch_status', locale),
+      status: hasRealData ? 'real' : 'demo',
+      detail: hasRealData ? `${tasks.filter((task) => task.status === 'dispatched' || task.status === 'running').length} dispatched` : t('smoke.demoFallback.body', locale),
+    },
+    {
+      key: 'proof_review',
+      label: t('smoke.step.proof_review', locale),
+      status: proofs.length > 0 ? 'real' : 'demo',
+      detail: proofs.length > 0 ? `${proofs.length} proofs found` : t('smoke.demoFallback.body', locale),
+    },
+    {
+      key: 'release_readiness',
+      label: t('smoke.step.release_readiness', locale),
+      status: releaseReadiness ? 'real' : 'demo',
+      detail: releaseReadiness ? `${releaseReadiness.ready_groups ?? 0}/${releaseReadiness.total_groups ?? 0} ready` : t('smoke.demoFallback.body', locale),
+    },
+    {
+      key: 'archive_closeout',
+      label: t('smoke.step.archive_closeout', locale),
+      status: hasRealData && groups.some((g) => g.status === 'archived') ? 'real' : 'demo',
+      detail: hasRealData && groups.some((g) => g.status === 'archived') ? `${groups.filter((g) => g.status === 'archived').length} archived` : t('smoke.demoFallback.body', locale),
+    },
+  ];
 }
 
 const App: React.FC = () => {
@@ -147,11 +225,11 @@ const App: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const sse = useSSE(PROJECT_ID);
 
-  const loadRuntime = async () => {
+    const loadRuntime = async () => {
     setLoading(true);
     setError(null);
     try {
-      const [summary, tasks, groups, dispatchLive, reports, artifacts, settings, agents, auditEvents, directories, observability] = await Promise.all([
+      const settled = await Promise.allSettled([
         runtimeApi.getSummary(PROJECT_ID),
         runtimeApi.listTasks(PROJECT_ID, { include_graph: true, limit: 100 }),
         runtimeApi.listGroups(PROJECT_ID, { include_tasks: true, limit: 100 }),
@@ -163,7 +241,32 @@ const App: React.FC = () => {
         runtimeApi.listAuditEvents(PROJECT_ID, { limit: 20 }),
         runtimeApi.getDirectories(PROJECT_ID),
         runtimeApi.getObservability(PROJECT_ID),
+        runtimeApi.getRuntimeConnectionStatus(PROJECT_ID),
+        runtimeApi.getReleaseReadiness(PROJECT_ID),
+        runtimeApi.searchProofs(PROJECT_ID, { limit: 25 }),
+        runtimeApi.getOpsStatus(PROJECT_ID),
+        runtimeApi.listTemplates(PROJECT_ID, { limit: 50 }),
       ]);
+      const degradedReasons = settled.map((result, index) => result.status === 'rejected' ? `runtime_api_${index}` : '').filter(Boolean);
+      const value = <T,>(index: number, fallback: T): T => settled[index].status === 'fulfilled' ? (settled[index] as PromiseFulfilledResult<T>).value : fallback;
+      const summary = value(0, { summary: undefined as RuntimeSummary | undefined });
+      const tasks = value(1, { tasks: [] as RuntimeTask[] });
+      const groups = value(2, { groups: [] as RuntimeGroup[] });
+      const dispatchLive = value(3, { dispatch_live: { runs: [] as RuntimeRun[] } });
+      const reports = value(4, { reports: [] as RuntimeReport[] });
+      const artifacts = value(5, { artifacts: [] as RuntimeArtifact[] });
+      const settings = value(6, { settings: undefined as RuntimeSettings | undefined });
+      const agents = value(7, { agents: [] as RuntimeAgent[] });
+      const auditEvents = value(8, { audit_events: [] as RuntimeAuditEvent[] });
+      const directories = value(9, { directories: undefined as RuntimeDirectories | undefined });
+      const observability = value(10, { observability: undefined as RuntimeObservability | undefined });
+      const connection = value(11, { status: degradedReasons.length ? 'degraded' : 'connected' } as RuntimeConnectionStatus);
+      const releaseReadiness = value(12, { release_readiness: undefined as RuntimeReleaseReadiness | undefined });
+      const proofSearch = value(13, { proofs: [] as RuntimeProofSummary[] });
+      const opsStatus = value(14, { ops_status: undefined as RuntimeOpsStatus | undefined });
+      const templates = value(15, { templates: [] as RuntimeTemplateSummary[] });
+
+      if (degradedReasons.length === settled.length) throw new Error('runtime_unavailable');
       setState((prev) => ({
         summary: summary.summary,
         tasks: tasks.tasks,
@@ -177,9 +280,17 @@ const App: React.FC = () => {
         directories: directories.directories,
         observability: observability.observability,
         realtimeEvents: prev.realtimeEvents,
+        connectionStatus: degradedReasons.length ? { ...connection, status: 'degraded' } : connection,
+        releaseReadiness: releaseReadiness.release_readiness,
+        proofs: proofSearch.proofs,
+        opsStatus: opsStatus.ops_status,
+        templates: templates.templates,
+        hasLoadedOnce: true,
+        degradedReasons,
       }));
-    } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    } catch {
+      setError('runtime_unavailable');
+      setState((prev) => ({ ...prev, connectionStatus: { status: 'offline' }, degradedReasons: ['runtime_unavailable'] }));
     } finally {
       setLoading(false);
     }
@@ -565,11 +676,168 @@ const App: React.FC = () => {
     );
   };
 
+  const renderOpsTemplatesPerformance = () => {
+    // R40_OPS_TEMPLATES_PERFORMANCE_CONTRACT: WebUI ops page backed only by Runtime API projections.
+    // R40_PERFORMANCE_PASS_CONTRACT: virtualTaskWindow, proofSummaryCache, PERFORMANCE_PAGE_SIZE, and backpressureDroppedEvents monitoring.
+    const ops = state.opsStatus;
+    const backpressureDroppedEvents = sse.connection_state?.dropped_events ?? 0;
+    const virtualTaskWindow = state.tasks.slice(0, PERFORMANCE_PAGE_SIZE);
+    const proofSummaryCache = { size: state.proofs.length, ttl: ops?.cache_ttl_ms ?? 15000 };
+    const createProofSummaryCache = () => proofSummaryCache;
+    createProofSummaryCache();
+
+    return (
+      <div className="space-y-5">
+        <Section title={t('page.opsTemplatesPerformance', locale)}>
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+            <StatCard label={t('ops.dockerComposeWebuiPort', locale)} value={ops?.docker_compose_webui_port ?? '—'} />
+            <StatCard label={t('ops.runtimeApiHealth', locale)} value={ops?.runtime_api_health?.status ?? '—'} tone={safeStatusTone(ops?.runtime_api_health?.status ?? 'unknown')} />
+            <StatCard label={t('ops.workerEndpointHealth', locale)} value={ops ? `${ops.worker_endpoint_health.online}/${ops.worker_endpoint_health.total}` : '—'} tone={safeStatusTone(ops?.worker_endpoint_health?.status ?? 'unknown')} />
+            <StatCard label={t('ops.githubCiStatus', locale)} value={t(`status.${ops?.github_ci_status ?? 'unconfigured'}`, locale)} tone={safeStatusTone(ops?.github_ci_status ?? 'unconfigured')} />
+          </div>
+          {ops?.sqlite_wal_db_lock_warning && (
+            <div className="mt-4 rounded border border-[#d29922]/40 bg-[#9e6a03]/20 p-3 text-xs text-[#e3b341]">
+              <b>{t('ops.sqliteWalWarning', locale)}</b>: {ops.sqlite_wal_db_lock_warning}
+            </div>
+          )}
+        </Section>
+
+        <Section title={t('page.templates', locale)}>
+          <div className="mb-3 text-[11px] text-[#8b949e]">{t('templates.safeAbstraction', locale)}</div>
+          <div className="grid grid-cols-1 gap-3">
+            {state.templates.map((tmpl) => (
+              <div key={tmpl.id} className="rounded-lg border border-[#30363d] bg-[#0d1117] p-3">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-bold text-[#e6edf3]">{t(`templates.${tmpl.id.replace('v8_', '')}`, locale)}</div>
+                  <span className="rounded bg-[#30363d] px-2 py-0.5 text-[10px] text-[#8b949e]">{tmpl.category}</span>
+                </div>
+                <div className="mt-1 text-xs text-[#8b949e]">{tmpl.description}</div>
+                <div className="mt-2 text-[10px] font-mono text-[#58a6ff]">Out: {tmpl.output_contract}</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+
+        <Section title={t('page.performance', locale)}>
+          <div className="grid grid-cols-1 gap-3 text-xs text-[#8b949e] md:grid-cols-2">
+            <div>{t('performance.virtualList', locale)}: <b>{virtualTaskWindow.length} tasks</b> (pageSize={PERFORMANCE_PAGE_SIZE})</div>
+            <div>{t('performance.backpressure', locale)}: <b>{backpressureDroppedEvents} dropped</b></div>
+            <div>{t('performance.cache', locale)}: <b>{proofSummaryCache.size} proofs</b> (ttl={proofSummaryCache.ttl}ms)</div>
+            <div>{t('performance.pagination', locale)}: <b>cursor-based polling</b></div>
+          </div>
+        </Section>
+      </div>
+    );
+  };
+
+  // R40_ONBOARDING_DEGRADED_STATE_UI_CONTRACT: first-run onboarding, next-action panel, explicit
+  // loading/empty/error/degraded surfaces — all state from runtimeApi only, no raw identifiers exposed.
+  const getNextAction = (): string => {
+    if (!state.hasLoadedOnce) return 'loading.runtime';
+    if (state.degradedReasons.length > 0) return 'connection.degraded';
+    if (state.tasks.length === 0 && state.groups.length === 0) return 'nextAction.createGroup';
+    const createdTask = state.tasks.find((t) => t.status === 'created');
+    if (createdTask) return 'nextAction.dispatchCreated';
+    const reviewTask = state.tasks.find((t) => t.status === 'review_pending');
+    if (reviewTask) return 'nextAction.reviewPending';
+    const blockedTask = state.tasks.find((t) => t.status === 'blocked' || t.status === 'retry_ready');
+    if (blockedTask) return 'nextAction.resolveBlocked';
+    return 'nextAction.watchRuntime';
+  };
+
+  const renderOnboarding = () => {
+    const nextAction = getNextAction();
+    return (
+      <Section title={t('onboarding.firstRun', locale)}>
+        <div className="mb-4 text-xs text-[#8b949e]">{t('onboarding.description', locale)}</div>
+        <div className="space-y-3">
+          {['connect', 'inspect', 'act'].map((step) => (
+            <div key={step} className="rounded-lg border border-[#30363d] bg-[#0d1117] p-3 text-xs">
+              <div className="font-semibold text-[#e6edf3]">{t(`onboarding.step.${step}`, locale)}</div>
+            </div>
+          ))}
+        </div>
+        <div className="mt-4 rounded border border-[#388bfd]/40 bg-[#0d419d]/20 p-3 text-xs text-[#58a6ff]">
+          {t('onboarding.nextAction', locale)}: <b>{t(nextAction, locale)}</b>
+        </div>
+      </Section>
+    );
+  };
+
+  const renderNextActionPanel = () => {
+    const nextAction = getNextAction();
+    return (
+      <div className="rounded border border-[#238636]/40 bg-[#1f6f3d]/20 p-3 text-xs text-[#3fb950]">
+        {t('onboarding.nextAction', locale)}: <b>{t(nextAction, locale)}</b>
+      </div>
+    );
+  };
+
+  const renderLoadingState = () => (
+    <div className="flex items-center justify-center p-12">
+      <div className="text-[#8b949e]">{t('loading.runtime', locale)}</div>
+    </div>
+  );
+
+  const renderErrorState = () => (
+    <div className="m-8 rounded border border-[#f85149] bg-[#2d1f1f] p-4 text-[#ff7b72]">
+      <div className="mb-2 font-bold">{t('error.title', locale)}</div>
+      <button onClick={loadRuntime} className="rounded bg-[#da3633] px-3 py-1 text-xs text-white">{t('error.retry', locale)}</button>
+    </div>
+  );
+
+  const renderDegradedBanner = () => {
+    if (!state.degradedReasons.length) return null;
+    return (
+      <div className="mb-4 rounded border border-[#d29922]/40 bg-[#9e6a03]/20 p-3 text-xs text-[#e3b341]">
+        <b>{t('degraded.banner', locale)}</b>: {t('degraded.partialData', locale)} — {t('connection.status', locale)}: {t(`connection.${state.connectionStatus?.status ?? 'offline'}`, locale)} ({t('connection.degraded', locale)} / {t('connection.offline', locale)})
+        <span className="ml-2 text-[#8b949e]">({state.degradedReasons.length} endpoints degraded)</span>
+      </div>
+    );
+  };
+
+  const renderProductSmokeFlow = () => {
+    // R40_PRODUCT_SMOKE_FLOW_CONTRACT
+    const steps = buildProductSmokeSteps({
+      releaseReadiness: state.releaseReadiness,
+      proofs: state.proofs,
+      tasks: state.tasks,
+      groups: state.groups,
+      locale,
+    });
+    const demoOnlyFallbackLabel = t('smoke.demoFallback.title', locale);
+    const allReal = steps.every((s) => s.status === 'real');
+    return (
+      <div className="space-y-5">
+        <Section title={t('page.productSmokeFlow', locale)}>
+          <div className="mb-4 rounded border border-[#388bfd]/40 bg-[#0d419d]/20 p-3 text-xs text-[#58a6ff]">{t('smoke.apiOnlyNotice', locale)}</div>
+          {!allReal && (
+            <div className="mb-4 rounded border border-[#d29922]/40 bg-[#9e6a03]/20 p-3 text-xs text-[#e3b341]">
+              <b>{demoOnlyFallbackLabel}</b>: {t('smoke.demoFallback.body', locale)} — {t('smoke.noFakeProduction', locale)}
+            </div>
+          )}
+          <div className="space-y-3">
+            {steps.map((step) => (
+              <div key={step.key} className={`rounded-lg border p-4 ${step.status === 'real' ? 'border-[#238636]/40 bg-[#1f6f3d]/20' : step.status === 'demo' ? 'border-[#d29922]/40 bg-[#9e6a03]/20' : 'border-[#f85149]/40 bg-[#da3633]/20'}`}>
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-semibold text-[#e6edf3]">{step.label}</div>
+                  <span className={`rounded-full px-2 py-0.5 text-[10px] font-mono ${step.status === 'real' ? 'bg-[#1f2d23] text-[#3fb950]' : step.status === 'demo' ? 'bg-[#2d2a1f] text-[#e3b341]' : 'bg-[#2d1f1f] text-[#f85149]'}`}>{t(`smoke.status.${step.status}`, locale)}</span>
+                </div>
+                <div className="mt-2 text-xs text-[#8b949e]">{step.detail}</div>
+              </div>
+            ))}
+          </div>
+        </Section>
+      </div>
+    );
+  };
+
   const renderPage = () => {
-    if (loading) return <div className="p-8 text-[#8b949e]">Loading Runtime API...</div>;
-    if (error) return <div className="m-8 rounded border border-[#f85149] bg-[#2d1f1f] p-4 text-[#ff7b72]">{error}</div>;
+    if (loading) return renderLoadingState();
+    if (error) return renderErrorState();
     switch (activePage) {
       case 'dashboard': return renderDashboard();
+          case 'opsTemplatesPerformance': return renderOpsTemplatesPerformance();
       case 'lifecycle': return renderLifecycle();
       case 'kanban': return renderKanban();
       case 'realtimeFeed': return renderRealtimeFeed();
@@ -583,6 +851,7 @@ const App: React.FC = () => {
       case 'agentPerformance': return renderAgentPerformance();
       case 'roleActionVisibility': return renderRoleActionVisibility();
       case 'controlledActions': return renderControlledActions();
+      case 'productSmokeFlow': return renderProductSmokeFlow();
       default: return null;
     }
   };

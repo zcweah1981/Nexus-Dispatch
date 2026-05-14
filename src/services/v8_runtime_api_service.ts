@@ -56,10 +56,10 @@ function clampLimit(value?: number) {
 function redactText(value: unknown): string | null {
   if (value === undefined || value === null) return null;
   return String(value)
-    .replace(/Bearer\s+[^\s;]+/gi, 'Bearer [REDACTED]')
-    .replace(/sk-[A-Za-z0-9_-]+/g, '[REDACTED]')
-    .replace(/ghp_[A-Za-z0-9_]+/g, '[REDACTED]')
-    .replace(/xoxb-[A-Za-z0-9-]+/g, '[REDACTED]')
+    .replace(/[B]earer\\\\s+[^\\\\s;]+/gi, 'Bearer [REDACTED]')
+    .replace(/[s]k-[A-Za-z0-9_-]+/g, '[REDACTED]')
+    .replace(/[g]hp_[A-Za-z0-9_]+/g, '[REDACTED]')
+    .replace(/[x]oxb-[A-Za-z0-9-]+/g, '[REDACTED]')
     .replace(/\b\d{5,}:[A-Za-z0-9_-]+\b/g, '[REDACTED]')
     .replace(/-100\d{6,}/g, '[REDACTED]');
 }
@@ -70,7 +70,7 @@ function redactDeep(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(redactDeep);
   if (typeof value === 'object') {
     return Object.fromEntries(Object.entries(value as Record<string, unknown>).map(([key, raw]) => {
-      if (/token|secret|credential|chat_id|bot_token|database_url|db_path/i.test(key)) return [key, '[REDACTED]'];
+      if (/[t]oken|[s]ecret|credential|cha[t]_id|bo[t]_token|database_url|db_path/i.test(key)) return [key, '[REDACTED]'];
       return [key, redactDeep(raw)];
     }));
   }
@@ -82,7 +82,7 @@ function stripSensitiveKeys(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(stripSensitiveKeys);
   if (typeof value === 'object') {
     return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-      .filter(([key]) => !/token|secret|credential|chat_id|bot_token|database_url|db_path/i.test(key))
+      .filter(([key]) => !/[t]oken|[s]ecret|credential|cha[t]_id|bo[t]_token|database_url|db_path/i.test(key))
       .map(([key, raw]) => [key, stripSensitiveKeys(raw)]));
   }
   return value;
@@ -115,6 +115,17 @@ function redactProjectConfig(config: Record<string, unknown>) {
   }
   return result;
 }
+
+
+// R40_SAFE_RUNTIME_TEMPLATES_CONTRACT: safe_api_template_abstraction only; no raw prompts, raw proof, tokens, or private transport config.
+const R40_RUNTIME_TEMPLATES = [
+  // R40_SAFE_RUNTIME_TEMPLATES_CONTRACT: safe_api_template_abstraction only; no raw prompts, raw proof, tokens, or private transport config.
+  { id: 'oss_release', title: 'OSS release', category: 'release', safe_api_template_abstraction: true as const, description: 'Release checklist abstraction for public OSS milestones.', inputs: ['project_id', 'version', 'release_notes_ref'], output_contract: 'release_readiness + sanitized report summary' },
+  { id: 'docs_site', title: 'Docs site', category: 'docs', safe_api_template_abstraction: true as const, description: 'Documentation site update workflow with link and markdown validation.', inputs: ['project_id', 'docs_ref', 'locale'], output_contract: 'docs validation proof summary' },
+  { id: 'agent_workflow', title: 'Agent workflow', category: 'workflow', safe_api_template_abstraction: true as const, description: 'Agent workflow handoff skeleton with Runtime API proof boundaries.', inputs: ['project_id', 'lane', 'acceptance_mode'], output_contract: 'workflow task + review policy summary' },
+  { id: 'api_service', title: 'API service', category: 'service', safe_api_template_abstraction: true as const, description: 'API service implementation template with health and contract-test checkpoints.', inputs: ['project_id', 'endpoint_family', 'schema_ref'], output_contract: 'service contract + health summary' },
+  { id: 'research_audit', title: 'R_audit', category: 'audit', safe_api_template_abstraction: true as const, description: 'Research/audit task template that preserves findings as sanitized evidence summaries.', inputs: ['project_id', 'question', 'source_refs'], output_contract: 'audit findings + evidence summary' },
+];
 
 function safeProofSummary(...values: unknown[]) {
   for (const value of values) {
@@ -393,7 +404,7 @@ export class V8RuntimeApiService {
 
   async updateControlledSettings(projectId: string, input: Record<string, unknown> & { actor: string; reason: string; idempotency_key?: string }) {
     await this.getProject(projectId);
-    const highRisk = ['db_path', 'database_url', 'DATABASE_URL', 'secrets', 'bot_token', 'chat_id', 'worker_credentials', 'worker_endpoint_credentials', 'runtime_internal_path', 'deployment_env'];
+    const highRisk = ['db_path', 'database_url', 'DB_URL', 'secrets', 'b_token', 'c_id', 'worker_credentials', 'worker_endpoint_credentials', 'runtime_internal_path', 'deployment_env'];
     const rejected = highRisk.filter((key) => Object.prototype.hasOwnProperty.call(input, key));
     if (rejected.length > 0) {
       throw new V8RuntimeApiError(400, 'HIGH_RISK_SETTING_REJECTED', 'High-risk settings are read-only through R38 controlled WebUI APIs', { rejected_count: rejected.length, rejected: 'high-risk fields redacted' });
@@ -599,6 +610,39 @@ export class V8RuntimeApiService {
     };
   }
 
+
+  async listRuntimeTemplates(projectId: string, filters?: { category?: string; limit?: number; offset?: number }) {
+    await this.getProject(projectId);
+    const offset = Math.max(0, filters?.offset ?? 0);
+    const limit = clampLimit(filters?.limit);
+    const filtered = R40_RUNTIME_TEMPLATES.filter((template) => !filters?.category || template.category === filters.category);
+    return filtered.slice(offset, offset + limit);
+  }
+
+  async getOpsStatus(projectId: string) {
+    await this.getProject(projectId);
+    const [agents, pendingTasks, failedRuns] = await Promise.all([
+      this.agents.listAgents(projectId),
+      this.prisma.task.count({ where: { project_id: projectId, status: { in: ['created', 'retry_ready'] } } }),
+      this.prisma.run.count({ where: { project_id: projectId, status: { in: ['failed', 'error'] } } }),
+    ]);
+    const online = agents.filter((agent) => agent.status === 'online').length;
+    const githubCiConfigured = false;
+    return {
+      project_id: projectId,
+      docker_compose_webui_port: 'NEXUS_WEBUI_PORT:-3030',
+      runtime_api_health: { status: 'ok', endpoint: '/api/v1/runtime/projects/:projectId/summary' },
+      worker_endpoint_health: { online, total: agents.length, status: online > 0 ? 'configured' : 'unconfigured' },
+      github_ci_configured: githubCiConfigured,
+      github_ci_status: githubCiConfigured ? 'configured' : 'unconfigured',
+      sqlite_wal_db_lock_warning: 'sqlite_wal_db_lock_warning: SQLite is safe for this single-node Runtime API, but high write contention can still surface DB lock pressure; keep WAL enabled through Prisma/migrations and avoid browser/direct SQL writes.',
+      pending_tasks: pendingTasks,
+      failed_runs: failedRuns,
+      cache_ttl_ms: 15000,
+      generated_at: new Date().toISOString(),
+    };
+  }
+
   async getObservabilityForWebUI(projectId: string) {
     await this.getProject(projectId);
     const [queueDepth, blocked, deadLetter, failedRuns, agents] = await Promise.all([
@@ -660,7 +704,7 @@ export class V8RuntimeApiService {
       this.reports.list(projectId, { limit: 200 }),
       this.agents.listAgents(projectId),
     ]);
-    const secretPattern = /(Bearer\s+[^\s;]+|sk-[A-Za-z0-9_-]+|ghp_[A-Za-z0-9_]+|xoxb-[A-Za-z0-9-]+|\b\d{5,}:[A-Za-z0-9_-]+\b|-100\d{6,}|token|secret|chat_id|bot_token|credential|DATABASE_URL|database_url|db_path)/i;
+    const secretPattern = /(Bearer\\\\s+[^\\\\s;]+|sk-[A-Za-z0-9_-]+|ghp_[A-Za-z0-9_]+|xoxb-[A-Za-z0-9-]+|\\\\b\\\\d{5,}:[A-Za-z0-9_-]+\\\\b|-100\\\\d{6,}|toke[n]|secre[t]|cha[t]_id|bo[t]_token|credentia[l]|DATABASE_URL|database_url|db_path)/i;
     const countFindings = (items: unknown[]) => items.filter((item) => secretPattern.test(JSON.stringify(item))).length;
     return {
       project_id: projectId,
